@@ -1,4 +1,9 @@
-from sistema.numeros import parse_numero, parse_ultimo_numero, parse_unidad
+from sistema.numeros import (
+    parse_decimal,
+    parse_numero,
+    parse_ultimo_numero,
+    parse_unidad,
+)
 
 
 def test_enteros_hablados():
@@ -27,6 +32,14 @@ def test_cero_nueve_del_asr():
     # Whisper transcribe "cero nueve" como "09": es 0,9, no 9.
     assert parse_numero("09 de diferencial") == 0.9
     assert parse_numero("cero nueve de diferencial") == 0.9
+
+
+def test_decimal_con_a_del_asr():
+    # Con voz humana el ASR escribe "0 a 9" por "0,9" y "1 a 3" por "1,3".
+    assert parse_decimal("0 a 9") == 0.9
+    assert parse_decimal("1 a 3") == 1.3
+    assert parse_decimal("1 coma 3") == 1.3
+    assert parse_decimal("1,3") is None
 
 
 def test_ultimo_numero_del_tramo():

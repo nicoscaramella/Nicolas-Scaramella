@@ -102,6 +102,15 @@ def test_correccion_no_duplica_ni_pisa(parser):
     )
 
 
+def test_correccion_decimal_con_a(parser):
+    filas = [{"tag": "F-201A", "variable": "presion_diferencial", "valor": 3.0,
+              "unidad": "kg/cm2", "observacion": "diferencial alto"}]
+    texto = "No. El filtro a estaba en 1 a 3 kilos, no en 3. Arreglá eso."
+    nuevas = aplicar_correcciones(filas, texto, parser)
+    assert nuevas[0]["valor"] == 1.3
+    assert nuevas[0]["observacion"] is None
+
+
 def test_correccion_unidad(parser):
     filas = [{"tag": "B-102", "variable": "presion_descarga_local", "valor": 115.0,
               "unidad": "psi", "observacion": None}]

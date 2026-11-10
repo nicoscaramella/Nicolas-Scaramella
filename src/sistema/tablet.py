@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from .numeros import normalizar, parse_numero, parse_unidad
+from .numeros import normalizar, parse_decimal, parse_numero, parse_unidad
 from .parser import Parser
 
 CONFIRMA = (
@@ -218,6 +218,12 @@ def _mismo_valor(a: float | None, b: float | None) -> bool:
     return abs(float(a) - float(b)) <= max(0.011, abs(float(b)) * 0.005)
 
 
+def _numero_de(texto: str) -> float | None:
+    """Número dicho por el operador, incluyendo "1 a 3" por "1,3"."""
+    valor = parse_decimal(texto)
+    return valor if valor is not None else parse_numero(texto)
+
+
 def aplicar_correcciones(filas: list[dict], respuesta: str, parser: Parser) -> list[dict]:
     """Aplica las correcciones que dicta el operador, en lenguaje de campo.
 
@@ -230,7 +236,7 @@ def aplicar_correcciones(filas: list[dict], respuesta: str, parser: Parser) -> l
 
     # "Eso de ciento doce era de la uno, no de la dos." Reasignar por valor.
     for m in re.finditer(r"eso de (?P<valor>.+?) era de (?P<bueno>[a-z ]+?),? no de (?P<malo>[a-z ]+?)(?:\.|$)", t):
-        valor = parse_numero(m.group("valor"))
+        valor = _numero_de(m.group("valor"))
         bueno = _tag_de(m.group("bueno"), parser)
         if valor is None or not bueno:
             continue
@@ -244,7 +250,7 @@ def aplicar_correcciones(filas: list[dict], respuesta: str, parser: Parser) -> l
         if not tag:
             continue
         nuevo_txt = m.group("nuevo")
-        nuevo = parse_numero(nuevo_txt)
+        nuevo = _numero_de(nuevo_txt)
         unidad = parse_unidad(nuevo_txt) or parse_unidad(m.group("viejo"))
         variable = _variable_por_unidad(tag, unidad, parser)
         if nuevo is None or not variable:
@@ -258,7 +264,7 @@ def aplicar_correcciones(filas: list[dict], respuesta: str, parser: Parser) -> l
         ):
             continue
         candidatas = [f for f in filas if f.get("tag") == tag]
-        viejo = parse_numero(m.group("viejo"))
+        viejo = _numero_de(m.group("viejo"))
         fila = next((f for f in candidatas if _mismo_valor(f.get("valor"), viejo)), None)
         if fila is None:
             fila = next((f for f in candidatas if f.get("variable") == variable), None)
@@ -282,7 +288,7 @@ def aplicar_correcciones(filas: list[dict], respuesta: str, parser: Parser) -> l
         tag = _tag_de(m.group("nombre"), parser)
         if not tag:
             continue
-        valor = parse_numero(m.group("valor"))
+        valor = _numero_de(m.group("valor"))
         unidad = parse_unidad(m.group("valor"))
         variable = _variable_por_unidad(tag, unidad, parser)
         if variable:

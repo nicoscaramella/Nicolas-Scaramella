@@ -21,6 +21,16 @@ def test_diferencial_cero_nueve(parser):
     assert filas[("F-201B", "presion_diferencial")].valor == 0.9
 
 
+def test_diferencial_0_a_9(parser):
+    filas = por_clave(parser.parse("El filtro B me dio 0 a 9 de diferencial."))
+    assert filas[("F-201B", "presion_diferencial")].valor == 0.9
+
+
+def test_diferencial_1_a_3(parser):
+    filas = por_clave(parser.parse("El filtro a medio, 1 a 3 de diferencial."))
+    assert filas[("F-201A", "presion_diferencial")].valor == 1.3
+
+
 def test_bomba_sin_articulo_no_pierde_el_valor(parser):
     texto = (
         "la uno, estar en 112 kilogramos de descarga, el rodamiento medió 59 grados "

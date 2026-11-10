@@ -152,6 +152,25 @@ def parse_numero(texto: str) -> float | None:
     return None
 
 
+def parse_decimal(texto: str) -> float | None:
+    """Decimal que el ASR escribe raro: "0 a 9" o "1 a 3" por "0,9"/"1,3".
+
+    También acepta "1 coma 3" con dígitos. No reemplaza a ``parse_numero``:
+    devuelve ``None`` si no encuentra ese patrón, y ahí se usa el parser normal.
+    """
+    t = normalizar(texto)
+    patrones = (
+        r"\b(\d)\s+a\s+(\d)\b",
+        r"\b(\d)\s+(?:coma|punto)\s+(\d)\b",
+    )
+    for patron in patrones:
+        matches = list(re.finditer(patron, t))
+        if matches:
+            entero, decimal = matches[-1].groups()
+            return float(f"{entero}.{decimal}")
+    return None
+
+
 def parse_ultimo_numero(texto: str) -> float | None:
     """Devuelve el último número del texto, no el primero.
 

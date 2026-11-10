@@ -11,7 +11,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .numeros import normalizar, parse_numero, parse_ultimo_numero, parse_unidad
+from .numeros import (
+    normalizar,
+    parse_decimal,
+    parse_numero,
+    parse_ultimo_numero,
+    parse_unidad,
+)
 from .seguridad import detectar_seguridad
 
 NORMALES = {"parada, en reserva", "parada por mantenimiento"}
@@ -220,7 +226,11 @@ class Parser:
             # diferencial es el último número cercano, no el primero.
             # El tokenizador conserva los decimales ("1.3") enteros.
             ventana = " ".join(re.findall(r"[a-z0-9]+(?:[.,][0-9]+)*", pre)[-8:])
-            valor = parse_ultimo_numero(ventana)
+            # El ASR con voz humana escribe "0 a 9" por "0,9" y "1 a 3" por
+            # "1,3". Se interpreta como decimal antes de buscar el último número.
+            valor = parse_decimal(ventana)
+            if valor is None:
+                valor = parse_ultimo_numero(ventana)
             if valor is not None:
                 unidad = parse_unidad(ventana) or "kg/cm2"
                 # "dieciocho" por "uno ocho": el valor real es una décima.
