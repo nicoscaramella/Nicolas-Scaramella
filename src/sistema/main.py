@@ -145,6 +145,29 @@ def enviar_aviso(
     publicador().publicar("sistema/tablet", payload)
 
 
+def publicar_alerta(nota_id: str, codigo: str, texto: str, ts: str) -> None:
+    equipo = PARSER.tag_en_texto(texto)
+    evento = {
+        "id": f"EV-{nota_id}-SEG",
+        "ts": ts,
+        "tipo": "AlertaSeguridad",
+        "equipo": equipo,
+        "origen": "parte",
+        "nota_ids": [nota_id],
+        "resumen": f"Condición insegura {codigo}",
+    }
+    if db.guardar_evento(evento):
+        publicador().publicar("sistema/eventos", evento)
+    enviar_aviso(nota_id, texto_alerta(codigo), equipo)
+    db.actualizar_parte(
+        nota_id,
+        filas=[{"tag": equipo or "PLANTA", "variable": "condicion_insegura", "valor": None,
+                "unidad": None, "observacion": texto_alerta(codigo)}],
+        estado="seguridad",
+    )
+    log.info("Alerta %s publicada para %s", codigo, nota_id)
+
+
 def tendencia_de(filas: list[dict], ts: datetime) -> str | None:
     """Tendencia de las últimas horas para el contexto del Escalado."""
     partes: list[str] = []
@@ -212,6 +235,12 @@ def procesar_nota(nota: dict) -> None:
         db.actualizar_parte(nota_id, estado="vivo")
         log.info("Nota VIVO %s: sin parte esperado; se registra y no se pide confirmación", nota_id)
         return
+    # La foto de rotura de descarga es S1 aunque el ASR falle: el enlace puede
+    # estar caído justo cuando llega la nota.
+    codigo_foto = detectar_seguridad("", nota.get("fotos"))
+    if codigo_foto:
+        publicar_alerta(nota_id, codigo_foto, "", nota["ts"])
+        return
     log.info("Nota %s de %s", nota_id, nota.get("operador"))
     actualizar_enlace()
     pasos = 0
@@ -265,26 +294,7 @@ def procesar_nota(nota: dict) -> None:
 
     codigo = detectar_seguridad(texto, nota.get("fotos"))
     if codigo:
-        equipo = PARSER.tag_en_texto(texto)
-        evento = {
-            "id": f"EV-{nota_id}-SEG",
-            "ts": datetime.fromisoformat(nota["ts"]),
-            "tipo": "AlertaSeguridad",
-            "equipo": equipo,
-            "origen": "parte",
-            "nota_ids": [nota_id],
-            "resumen": f"Condición insegura {codigo}",
-        }
-        if db.guardar_evento(evento):
-            publicador().publicar("sistema/eventos", evento)
-        enviar_aviso(nota_id, texto_alerta(codigo), equipo)
-        db.actualizar_parte(
-            nota_id,
-            filas=[{"tag": equipo or "PLANTA", "variable": "condicion_insegura", "valor": None,
-                    "unidad": None, "observacion": texto_alerta(codigo)}],
-            estado="seguridad",
-        )
-        log.info("Alerta %s publicada para %s", codigo, nota_id)
+        publicar_alerta(nota_id, codigo, texto, nota["ts"])
         return
 
     resultado = PARSER.parse(texto, nota.get("fotos"))
@@ -522,6 +532,13 @@ def main() -> None:
     db.init_db()
     log.info("Sistema %s arrancando", settings.sistema)
     log.info("Planta: %s equipos", len(PLANTA.get("equipos", [])))
+    # Preload del ASR: si la primera nota llega con el enlace caído, el modelo
+    # ya tiene que estar en memoria y no intentar bajar nada de Hugging Face.
+    try:
+        asr()
+        log.info("ASR %s cargado", settings.asr_model)
+    except Exception:
+        log.exception("No se pudo cargar el ASR al arranque")
     global ESTADO_BOMBAS
     try:
         ESTADO_BOMBAS = {

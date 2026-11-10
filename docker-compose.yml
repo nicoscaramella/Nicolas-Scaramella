@@ -56,6 +56,10 @@ services:
       MKL_NUM_THREADS: "2"
       OPENBLAS_NUM_THREADS: "2"
       TOKENIZERS_PARALLELISM: "false"
+      # En runtime no se baja nada de Hugging Face: los modelos van en la
+      # imagen y el enlace puede estar caído.
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
       RAG_AUTOINDEX_DELAY_S: "60"
       # El contrato pide un latido cada 30 s.
       HEARTBEAT_S: "30"
