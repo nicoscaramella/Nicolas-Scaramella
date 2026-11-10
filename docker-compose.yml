@@ -61,6 +61,7 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       RAG_AUTOINDEX_DELAY_S: "60"
+      RAG_MIN_SCORE: "0.82"
       # El contrato pide un latido cada 30 s.
       HEARTBEAT_S: "30"
       MAX_INTENTOS: "3"

@@ -89,6 +89,23 @@ def test_chat_devuelve_texto_y_tokens():
 
 
 @respx.mock
+def test_chat_formato_json():
+    ruta = respx.post(f"{BASE}/api/chat").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "message": {"content": '{"ok": true}'},
+                "prompt_eval_count": 1,
+                "eval_count": 1,
+            },
+        )
+    )
+    cliente().chat("hola", formato="json")
+    cuerpo = json.loads(ruta.calls[0].request.content)
+    assert cuerpo["format"] == "json"
+
+
+@respx.mock
 def test_chat_falla_y_devuelve_none():
     respx.post(f"{BASE}/api/chat").mock(side_effect=httpx.ConnectError("sin ruta"))
     assert cliente().chat("hola") is None

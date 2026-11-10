@@ -56,6 +56,19 @@ de desarrollo sobre `libre` (4 notas):
 La primera nota incluye la carga del modelo ASR. Para los escenarios de la
 Entrega 1 se corre con la planta en `martes-tranquilo` o `fuga-sin-enlace`.
 
+## Guardrails del RAG
+
+- **Umbral de evidencia `RAG_MIN_SCORE=0.82`:** con las 71 preguntas del corpus,
+  **0/71** quedan sin evidencia; con 4 consultas fuera del corpus (capital de
+  Francia, pizza, mundial 2022, MQTT), **4/4** devuelven “no hay evidencia” y no
+  se llama al LLM.
+- **Guardia de citas:** salida JSON con `respuesta`, `citas` y `suficiente`. Se
+  rechazan citas que no estén en los fragmentos recuperados, respuestas sin
+  citas y `suficiente=false`; en esos casos se muestra la evidencia.
+- **Verificación manual:** pregunta del corpus → `ministral-3:3b` con
+  `MBP-4 §11.1`; fuera del corpus → “No encontré evidencia suficiente”;
+  instrucción maliciosa → fallback.
+
 ## Corrección oficial
 
 Última corrida (`martes-tranquilo` + `fuga-sin-enlace`): **91,3 / 100**,

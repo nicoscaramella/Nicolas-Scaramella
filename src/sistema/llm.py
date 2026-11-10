@@ -72,6 +72,7 @@ class LLM:
         mensaje: str,
         sistema: str | None = None,
         max_tokens: int | None = None,
+        formato: str | None = None,
     ) -> RespuestaLLM | None:
         """Una consulta sin streaming. Devuelve ``None`` ante cualquier falla."""
         if not self.habilitado or not self.permitido:
@@ -95,6 +96,8 @@ class LLM:
                 "num_predict": max_tokens or settings.llm_max_tokens,
             },
         }
+        if formato:
+            payload["format"] = formato
         try:
             r = httpx.post(
                 f"{self.base_url}/api/chat",

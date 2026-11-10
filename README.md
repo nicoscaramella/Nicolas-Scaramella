@@ -119,6 +119,37 @@ PostgreSQL, no en memoria.
   PIA-2). Se usa búsqueda híbrida: BM25 gana hit@5, pero el híbrido evita la
   revisión vencida y baja los distractores (ver `evaluacion/resultados.md`).
 
+## Seguridad del RAG
+
+El RAG es asesor: no arma ni confirma el parte. Para que no invente:
+
+- **Guardia de citas:** el LLM devuelve JSON con `respuesta`, `citas` y
+  `suficiente`. Si una cita no está entre los fragmentos recuperados, si no hay
+  citas o si `suficiente=false`, se descarta la respuesta y se muestra la
+  evidencia.
+- **Umbral de evidencia:** `RAG_MIN_SCORE=0.82`. Si la consulta no tiene un
+  fragmento con score vectorial suficiente, no se llama al LLM y se responde
+  “No encontré evidencia suficiente en el corpus”.
+  Medido con las 71 preguntas: 0 quedan sin evidencia; 4 de 4 consultas fuera
+  del corpus (capital de Francia, pizza, mundial, MQTT) se rechazan.
+- **Formato JSON** en Ollama (`format: "json"`), temperatura 0.
+- **La pregunta y los fragmentos son datos, no instrucciones**: el system prompt
+  no cambia por lo que digan.
+
+Prueba:
+
+```bash
+docker compose run --rm agente python scripts/preguntar.py \
+  "¿Qué se hace con la cola cuando se corta el enlace?"   # responde con cita
+
+docker compose run --rm agente python scripts/preguntar.py \
+  "¿Cuál es la capital de Francia?"                       # no hay evidencia
+```
+
+La guardia verifica que las citas existan, no que la interpretación sea
+correcta. Para los valores y las decisiones sigue mandando el parser
+determinista, no el LLM.
+
 ## Estructura
 
 ```text

@@ -15,6 +15,7 @@ import sys
 import time
 
 from sistema import db
+from sistema.config import settings
 from sistema.contexto import responder_consulta
 from sistema.llm import LLM
 from sistema.rag.buscar import RAG
@@ -36,18 +37,26 @@ def main() -> int:
         print("Índice vacío: indexando el corpus desde la planta...")
         asegurar_indice(rag)
 
-    recuperados = rag.buscar(pregunta, k=args.k)
+    recuperados = rag.buscar(
+        pregunta, k=args.k, min_score=settings.rag_min_score
+    )
     if not recuperados:
-        print("No hay fragmentos para esa consulta.")
-        return 1
+        print("No encontré evidencia suficiente en el corpus para responder.")
+        return 0
 
     inicio = time.perf_counter()
     salida = responder_consulta(pregunta, recuperados)
     segundos = time.perf_counter() - inicio
     print(salida["texto"])
     print()
-    print("Fuentes:", ", ".join(salida["citas"]) or "(sin citas)")
+    print("Citas usadas:", ", ".join(salida["citas"]) or "(sin citas)")
+    print(
+        "Fuentes recuperadas:",
+        ", ".join(salida.get("citas_recuperadas", [])) or "(sin fuentes)",
+    )
     print(f"Generado por: {salida['generado_por']}")
+    if salida.get("fallback"):
+        print(f"Fallback: {salida['fallback']}", file=sys.stderr)
     if salida.get("tokens_salida"):
         print(
             f"Tokens: entrada={salida.get('tokens_entrada', 0)} "
@@ -64,9 +73,15 @@ def main() -> int:
             )
         except Exception as exc:
             print(f"No se pudo registrar el consumo: {exc}", file=sys.stderr)
-    if salida["generado_por"] == "plantilla":
+    if salida.get("fallback") == "sin_llm":
         print(
             "Nota: el LLM no está disponible; se muestra la evidencia sin redactar.",
+            file=sys.stderr,
+        )
+    elif salida.get("fallback"):
+        print(
+            f"Guardia: respuesta rechazada ({salida['fallback']}); "
+            "se muestra la evidencia.",
             file=sys.stderr,
         )
     return 0

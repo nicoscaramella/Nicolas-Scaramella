@@ -1,4 +1,4 @@
-from sistema.rag.buscar import _aplica
+from sistema.rag.buscar import _aplica, filtrar_por_score
 from sistema.rag.evaluar import BM25, evaluar, rev_c_antes_que_d
 
 
@@ -68,6 +68,16 @@ def test_filtra_secciones_que_no_aplican_a_pia3():
     assert not _aplica({"titulo": "Límites de otras plantas"})
     assert not _aplica({"titulo": "PIA-1: bombas centrífugas multietapa"})
     assert _aplica({"titulo": "Límites de operación"})
+
+
+def test_filtrar_por_score_vectorial():
+    filas = [
+        {"cita": "a", "vector_score": 0.8, "fts_score": 0.1},
+        {"cita": "b", "vector_score": 0.5, "fts_score": 0.2},
+        {"cita": "c", "vector_score": None, "fts_score": 0.3},
+    ]
+    assert [f["cita"] for f in filtrar_por_score(filas, 0.7)] == ["a", "c"]
+    assert filtrar_por_score(filas, None) == filas
 
 
 def test_bm25_basico():

@@ -27,6 +27,8 @@ class Settings:
     presupuesto_tokens: int = int(os.getenv("PRESUPUESTO_TOKENS", "0"))
     rag_autoindex: bool = os.getenv("RAG_AUTOINDEX", "1") not in ("0", "false", "no")
     rag_autoindex_delay_s: int = int(os.getenv("RAG_AUTOINDEX_DELAY_S", "60"))
+    # Umbral de evidencia semántica para consultas; 0 lo deshabilita.
+    rag_min_score: float = float(os.getenv("RAG_MIN_SCORE", "0"))
     asr_cpu_threads: int = int(os.getenv("ASR_CPU_THREADS", "2"))
     proxy: str | None = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
 
