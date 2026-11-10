@@ -1,0 +1,83 @@
+# Sistema de parte por voz y detección en planta · Academia Novit 2026
+#
+# Se levanta al lado de la planta (proyecto compose "planta").
+#   docker compose up -d --build
+#
+# Requiere que la red externa planta-lan exista (la crea la planta).
+
+name: entrega
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: sistema
+      POSTGRES_PASSWORD: sistema
+      POSTGRES_DB: sistema
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [planta-lan]
+    labels:
+      academia.planta: pc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sistema -d sistema"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 1g}
+    restart: unless-stopped
+
+  agente:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # planta-lan es internal:true, no hay ruta a 172.17.0.1 (host-gateway).
+    # El host se alcanza por el gateway de la propia red.
+    extra_hosts:
+      - "host.docker.internal:172.20.0.1"
+    networks: [planta-lan]
+    labels:
+      academia.planta: pc
+    environment:
+      MQTT_HOST: broker
+      MQTT_PORT: "1883"
+      PLANTA_URL: http://sim:8100
+      DATABASE_URL: postgresql://sistema:sistema@postgres:5432/sistema
+      HTTP_PROXY: http://enlace:3128
+      HTTPS_PROXY: http://enlace:3128
+      NO_PROXY: broker,sim,localhost,postgres,agente,host.docker.internal,127.0.0.1
+      SISTEMA_NOMBRE: Nicolas-Scaramella
+      ASR_MODEL: small
+      ASR_COMPUTE: int8
+      ASR_CPU_THREADS: "2"
+      EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+      RAG_AUTOINDEX_DELAY_S: "60"
+      # El contrato pide un latido cada 30 s.
+      HEARTBEAT_S: "30"
+      MAX_INTENTOS: "3"
+      TIMEOUT_NOTA_S: "120"
+      RAG_AUTOINDEX: "1"
+      # LLM local opcional para demo; no participa del camino crítico.
+      # Poner en "1" para probar scripts/preguntar.py con Ollama.
+      LLM_HABILITADO: "0"
+      LLM_MODEL: ministral-3:3b
+      LLM_MODELOS_PERMITIDOS: ministral-3:3b
+      LLM_BASE_URL: http://host.docker.internal:11434
+    deploy:
+      resources:
+        limits: {cpus: "3.5", memory: 7g}
+    restart: unless-stopped
+networks:
+  planta-lan:
+    external: true
+    name: planta-lan
+
+volumes:
+  pgdata:
