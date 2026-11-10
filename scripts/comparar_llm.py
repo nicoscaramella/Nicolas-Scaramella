@@ -81,6 +81,16 @@ def main() -> int:
             f"{modelo:22} {segundos:7.1f} {salida.get('tokens_entrada', 0):6} "
             f"{salida_tokens:6} {tps:7.1f}  {salida['generado_por']}"
         )
+        if salida_tokens and salida["generado_por"] != "plantilla":
+            try:
+                db.registrar_consumo(
+                    salida["generado_por"],
+                    salida.get("tokens_entrada", 0),
+                    salida_tokens,
+                    tps,
+                )
+            except Exception as exc:
+                print(f"No se pudo registrar el consumo de {modelo}: {exc}")
         if args.verboso:
             print(f"\n--- {modelo} ---\n{salida['texto']}\n")
     return 0

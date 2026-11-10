@@ -21,7 +21,7 @@ from .asr import ASR
 from .config import settings
 from .deteccion import SensorDetector, eventos_de_parte
 from .historial import SENSOR, aviso_fuera_de_rango, resumen_tendencia
-from .metricas import ConsumoTokens
+from .metricas import modelos_metricas, payload_metricas
 from .parser import Parser
 from .planta_api import PlantaAPI
 from .publicacion import Publicador
@@ -480,22 +480,13 @@ def probe_enlace() -> bool:
 
 
 def metricas_payload() -> dict:
-    modelos = [
-        {"modelo": f"faster-whisper-{settings.asr_model}", "tokens_entrada": 0, "tokens_salida": 0,
-         "tokens_total": 0, "tokens_por_segundo": None, "velocidad_estimada": False},
-        {"modelo": "parser-determinista", "tokens_entrada": 0, "tokens_salida": 0,
-         "tokens_total": 0, "tokens_por_segundo": None, "velocidad_estimada": False},
-    ]
-    return {
-        "ts": datetime.now(timezone.utc),
-        "sistema": settings.sistema,
-        "tokens_entrada": 0,
-        "tokens_salida": 0,
-        "tokens_total": 0,
-        "tokens_por_segundo": None,
-        "velocidad_estimada": False,
-        "modelos": modelos,
-    }
+    try:
+        consumo = db.consumo_por_modelo()
+    except Exception:
+        log.warning("No se pudo leer el consumo de tokens")
+        consumo = []
+    modelos = modelos_metricas(consumo, settings.asr_model)
+    return payload_metricas(modelos, settings.sistema)
 
 
 def heartbeat_loop() -> None:

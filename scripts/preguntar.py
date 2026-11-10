@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 from sistema import db
 from sistema.contexto import responder_consulta
@@ -40,7 +41,9 @@ def main() -> int:
         print("No hay fragmentos para esa consulta.")
         return 1
 
+    inicio = time.perf_counter()
     salida = responder_consulta(pregunta, recuperados)
+    segundos = time.perf_counter() - inicio
     print(salida["texto"])
     print()
     print("Fuentes:", ", ".join(salida["citas"]) or "(sin citas)")
@@ -50,6 +53,17 @@ def main() -> int:
             f"Tokens: entrada={salida.get('tokens_entrada', 0)} "
             f"salida={salida['tokens_salida']}"
         )
+        # Dejar el consumo en Postgres para que el latido del agente lo
+        # publique en sistema/metricas y se vea en el visor.
+        try:
+            db.registrar_consumo(
+                salida["generado_por"],
+                salida.get("tokens_entrada", 0),
+                salida["tokens_salida"],
+                salida["tokens_salida"] / segundos if segundos else None,
+            )
+        except Exception as exc:
+            print(f"No se pudo registrar el consumo: {exc}", file=sys.stderr)
     if salida["generado_por"] == "plantilla":
         print(
             "Nota: el LLM no está disponible; se muestra la evidencia sin redactar.",

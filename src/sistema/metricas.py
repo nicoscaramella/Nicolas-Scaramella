@@ -7,7 +7,7 @@ paquete del simulador.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,6 +26,60 @@ class ConsumoModelo(BaseModel):
         if self.tokens_total != self.tokens_entrada + self.tokens_salida:
             raise ValueError("El total debe ser entrada + salida")
         return self
+
+
+def modelos_metricas(consumo: list[dict], asr_model: str) -> list[dict]:
+    """Modelos del latido: ASR/parser fijos + consumo acumulado del LLM."""
+    modelos = [
+        {
+            "modelo": f"faster-whisper-{asr_model}",
+            "tokens_entrada": 0,
+            "tokens_salida": 0,
+            "tokens_total": 0,
+            "tokens_por_segundo": None,
+            "velocidad_estimada": False,
+        },
+        {
+            "modelo": "parser-determinista",
+            "tokens_entrada": 0,
+            "tokens_salida": 0,
+            "tokens_total": 0,
+            "tokens_por_segundo": None,
+            "velocidad_estimada": False,
+        },
+    ]
+    for fila in consumo:
+        entrada = int(fila.get("tokens_entrada") or 0)
+        salida = int(fila.get("tokens_salida") or 0)
+        modelos.append(
+            {
+                "modelo": fila["modelo"],
+                "tokens_entrada": entrada,
+                "tokens_salida": salida,
+                "tokens_total": entrada + salida,
+                "tokens_por_segundo": fila.get("tokens_por_segundo"),
+                "velocidad_estimada": bool(fila.get("velocidad_estimada")),
+            }
+        )
+    return modelos
+
+
+def payload_metricas(
+    modelos: list[dict], sistema: str, ts: datetime | None = None
+) -> dict:
+    return {
+        "ts": ts or datetime.now(timezone.utc),
+        "sistema": sistema,
+        "tokens_entrada": sum(m["tokens_entrada"] for m in modelos),
+        "tokens_salida": sum(m["tokens_salida"] for m in modelos),
+        "tokens_total": sum(m["tokens_total"] for m in modelos),
+        "tokens_por_segundo": next(
+            (m["tokens_por_segundo"] for m in modelos if m["tokens_por_segundo"] is not None),
+            None,
+        ),
+        "velocidad_estimada": any(m["velocidad_estimada"] for m in modelos),
+        "modelos": modelos,
+    }
 
 
 class ConsumoTokens(BaseModel):

@@ -55,8 +55,9 @@ El visor no se conecta a un modelo: muestra lo que publica este sistema.
   30 s. Si no hay latido, el visor dice “sin conexión”. El latido informa
   `pendientes_sincronizar` mientras el enlace está caído.
 - **Tabla “Modelo / Entrada / Salida / tok/s”**: sale de `sistema/metricas`.
-  Es telemetría opcional; si no se publica, dice “Sin datos de consumo”. No es
-  un indicador de que falte un modelo ni de que haga falta una GPU.
+  Incluye el ASR/parser y el consumo acumulado del LLM (`ministral-3:3b`) que
+  dejan `scripts/preguntar.py` y `scripts/comparar_llm.py` en PostgreSQL. Si
+  nunca se usó el LLM, la tabla muestra los modelos locales con 0 tokens.
 
 No hace falta NVIDIA ni `build.nvidia.com`: la transcripción y los embeddings
 corren en CPU dentro de este contenedor.

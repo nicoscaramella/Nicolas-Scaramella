@@ -98,6 +98,19 @@ def init_db() -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS consumo (
+                id SERIAL PRIMARY KEY,
+                modelo TEXT NOT NULL,
+                tokens_entrada INT NOT NULL DEFAULT 0,
+                tokens_salida INT NOT NULL DEFAULT 0,
+                tokens_por_segundo DOUBLE PRECISION,
+                velocidad_estimada BOOLEAN NOT NULL DEFAULT FALSE,
+                creado TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS rag_chunks (
                 id TEXT PRIMARY KEY,
                 doc TEXT,
@@ -270,6 +283,44 @@ def pendientes(limite: int = 100) -> list[dict]:
 def marcar_publicado(fila_id: int) -> None:
     with _pool().connection() as con:
         con.execute("UPDATE outbox SET publicado = true WHERE id = %s", (fila_id,))
+
+
+# --------------------------------------------------------------------------- consumo
+
+
+def registrar_consumo(
+    modelo: str,
+    tokens_entrada: int,
+    tokens_salida: int,
+    tokens_por_segundo: float | None = None,
+    velocidad_estimada: bool = False,
+) -> None:
+    with _pool().connection() as con:
+        con.execute(
+            """
+            INSERT INTO consumo
+                (modelo, tokens_entrada, tokens_salida, tokens_por_segundo,
+                 velocidad_estimada)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (modelo, tokens_entrada, tokens_salida, tokens_por_segundo, velocidad_estimada),
+        )
+
+
+def consumo_por_modelo() -> list[dict]:
+    with _pool().connection() as con:
+        return con.execute(
+            """
+            SELECT modelo,
+                   sum(tokens_entrada)::int AS tokens_entrada,
+                   sum(tokens_salida)::int AS tokens_salida,
+                   avg(tokens_por_segundo) AS tokens_por_segundo,
+                   bool_or(velocidad_estimada) AS velocidad_estimada
+            FROM consumo
+            GROUP BY modelo
+            ORDER BY modelo
+            """
+        ).fetchall()
 
 
 # --------------------------------------------------------------------------- RAG
