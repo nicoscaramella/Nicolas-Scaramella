@@ -199,6 +199,10 @@ docker compose run --rm agente python scripts/evaluar_sistema.py
 (USD 0 para los modelos locales). Es la suite que se usa para comparar
 cambios de ASR o de parser sin depender del flujo MQTT.
 
+Antes de correr el corrector, bajá este stack con `docker compose down`: el
+corrector levanta su propio `postgres` en `planta-lan` y dos servicios con el
+mismo nombre se pisan (el agente puede terminar conectado a la base equivocada).
+
 ## Planta vs nube
 
 Todo el camino crítico corre en la PC de planta (`planta-lan`, 4 CPU / 8 GB):
