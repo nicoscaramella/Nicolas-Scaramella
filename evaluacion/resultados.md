@@ -58,19 +58,19 @@ Entrega 1 se corre con la planta en `martes-tranquilo` o `fuga-sin-enlace`.
 
 ## Corrección oficial
 
-Última corrida completa (`martes-tranquilo` + `fuga-sin-enlace`): **88,8 / 100**,
-aprueba. Corridas anteriores con el mismo pipeline: 88,4 y 90,4. La diferencia
-es la transcripción de la nota `NOTA-00011`, que varía entre corridas.
+Última corrida (`martes-tranquilo` + `fuga-sin-enlace`): **91,3 / 100**,
+aprueba, con **E2 y B2 en 100 %**. Sobre los criterios del anexo (A1–A4b, B1,
+B2, F1, F2): **47,5 / 53 = 89,6 %**.
 
 | Criterio | Valor | Detalle |
 |---|---:|---|
 | A1 Cobertura | 100% | borrador en todas las notas |
-| A2 Primer intento | 64% | martes 7/9; fuga 2/4 |
+| A2 Primer intento | 69% | martes 8/9; fuga 2/4 |
 | A3 Parte final | 69% | martes 8/9; fuga 2/4 |
-| A4a Pregunta ambigüedad | 75% | en la última corrida el ASR no dijo “la bomba” en `NOTA-00011` |
+| A4a Pregunta ambigüedad | 100% | preguntó en todas las ambiguas |
 | A4b No pregunta de más | 100% | — |
 | B1 Sin novedad / Escalado | 100% | — |
-| B2 Alerta de seguridad | 100% | S1 en menos de 30 s reales |
+| B2 Alerta de seguridad | 100% | S1 por voz y por foto, en menos de 30 s reales |
 | E1 / E2 / E3 | 100% | outbox pendiente visible y sin duplicados |
 | F1 / F2 | 100% | mensajes válidos y latido |
 
