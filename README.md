@@ -200,10 +200,15 @@ cambios de ASR o de parser sin depender del flujo MQTT.
 
 Todo el camino crítico corre en la PC de planta (`planta-lan`, 4 CPU / 8 GB):
 
-- transcripción local con `faster-whisper`;
+- transcripción local con `faster-whisper` `small` (ASR; no es un LLM y no
+  usa la nube);
 - detector de anomalías y de condiciones inseguras en código;
 - parser determinista del parte;
 - PostgreSQL + pgvector para estado, memoria y RAG.
+
+`ministral-3:3b` **no transcribe audio**: se usa para consultas y contexto
+(texto y fotos) en el host, con Ollama, y queda fuera de la transcripción y del
+camino crítico del parte.
 
 No hay componentes en la nube en la Entrega 1. Los modelos locales se descargan
 durante el build de la imagen; en runtime la red de planta no tiene internet. El
