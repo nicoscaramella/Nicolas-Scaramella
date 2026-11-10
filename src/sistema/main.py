@@ -235,6 +235,9 @@ def procesar_nota(nota: dict) -> None:
         db.actualizar_parte(nota_id, estado="vivo")
         log.info("Nota VIVO %s: sin parte esperado; se registra y no se pide confirmación", nota_id)
         return
+    # El estado del enlace se consulta antes de publicar: si la nota llega con
+    # el enlace caído, la alerta y el evento tienen que quedar pendientes.
+    actualizar_enlace()
     # La foto de rotura de descarga es S1 aunque el ASR falle: el enlace puede
     # estar caído justo cuando llega la nota.
     codigo_foto = detectar_seguridad("", nota.get("fotos"))
@@ -242,7 +245,6 @@ def procesar_nota(nota: dict) -> None:
         publicar_alerta(nota_id, codigo_foto, "", nota["ts"])
         return
     log.info("Nota %s de %s", nota_id, nota.get("operador"))
-    actualizar_enlace()
     pasos = 0
     tokens = 0
     audio = b""
