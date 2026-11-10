@@ -133,8 +133,19 @@ El RAG es asesor: no arma ni confirma el parte. Para que no invente:
   Medido con las 71 preguntas: 0 quedan sin evidencia; 4 de 4 consultas fuera
   del corpus (capital de Francia, pizza, mundial, MQTT) se rechazan.
 - **Formato JSON** en Ollama (`format: "json"`), temperatura 0.
-- **La pregunta y los fragmentos son datos, no instrucciones**: el system prompt
-  no cambia por lo que digan.
+- **La pregunta, la nota y los fragmentos son datos, no instrucciones**. Van
+  delimitados (`<pregunta>`, `<nota>`, `<fragmentos>`) y el system prompt no
+  cambia por lo que digan. Si el LLM igual inventa una cita, la guardia la
+  rechaza.
+- **Auditoría:** cada consulta queda en la tabla `consultas` con la pregunta,
+  los fragmentos recuperados, la respuesta, las citas usadas, el modelo, los
+  tokens y el motivo de fallback.
+
+```bash
+docker compose exec -T postgres psql -U sistema -d sistema -c \
+  "select id, pregunta, modelo, citas_usadas, suficiente, fallback, creado
+   from consultas order by id desc limit 5;"
+```
 
 Prueba:
 

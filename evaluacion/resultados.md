@@ -68,6 +68,11 @@ Entrega 1 se corre con la planta en `martes-tranquilo` o `fuga-sin-enlace`.
 - **Verificación manual:** pregunta del corpus → `ministral-3:3b` con
   `MBP-4 §11.1`; fuera del corpus → “No encontré evidencia suficiente”;
   instrucción maliciosa → fallback.
+- **Auditoría:** tabla `consultas` (pregunta, recuperados, respuesta, citas
+  usadas, modelo, tokens, fallback). La consulta de prueba quedó registrada con
+  `MBP-4 §11.1`, 529/90 tokens y sin fallback.
+- **Inyección:** la pregunta, la nota y los fragmentos van delimitados como
+  datos; una respuesta con cita inventada cae al fallback.
 
 ## Corrección oficial
 

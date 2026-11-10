@@ -111,6 +111,23 @@ def init_db() -> None:
         )
         con.execute(
             """
+            CREATE TABLE IF NOT EXISTS consultas (
+                id SERIAL PRIMARY KEY,
+                pregunta TEXT NOT NULL,
+                recuperados JSONB NOT NULL DEFAULT '[]',
+                respuesta TEXT,
+                citas_usadas JSONB NOT NULL DEFAULT '[]',
+                modelo TEXT,
+                tokens_entrada INT NOT NULL DEFAULT 0,
+                tokens_salida INT NOT NULL DEFAULT 0,
+                suficiente BOOLEAN NOT NULL DEFAULT FALSE,
+                fallback TEXT,
+                creado TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS rag_chunks (
                 id TEXT PRIMARY KEY,
                 doc TEXT,
@@ -320,6 +337,41 @@ def consumo_por_modelo() -> list[dict]:
             GROUP BY modelo
             ORDER BY modelo
             """
+        ).fetchall()
+
+
+def registrar_consulta(
+    pregunta: str, recuperados: list[dict], salida: dict
+) -> None:
+    from .auditoria import registro_consulta
+
+    r = registro_consulta(pregunta, recuperados, salida)
+    with _pool().connection() as con:
+        con.execute(
+            """
+            INSERT INTO consultas
+                (pregunta, recuperados, respuesta, citas_usadas, modelo,
+                 tokens_entrada, tokens_salida, suficiente, fallback)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                r["pregunta"],
+                Jsonb(r["recuperados"]),
+                r["respuesta"],
+                Jsonb(r["citas_usadas"]),
+                r["modelo"],
+                r["tokens_entrada"],
+                r["tokens_salida"],
+                r["suficiente"],
+                r["fallback"],
+            ),
+        )
+
+
+def consultas_recientes(limite: int = 20) -> list[dict]:
+    with _pool().connection() as con:
+        return con.execute(
+            "SELECT * FROM consultas ORDER BY id DESC LIMIT %s", (limite,)
         ).fetchall()
 
 

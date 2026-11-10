@@ -91,6 +91,10 @@ def main() -> int:
                 )
             except Exception as exc:
                 print(f"No se pudo registrar el consumo de {modelo}: {exc}")
+        try:
+            db.registrar_consulta(pregunta, recuperados, salida)
+        except Exception as exc:
+            print(f"No se pudo auditar la consulta de {modelo}: {exc}")
         if args.verboso:
             print(f"\n--- {modelo} ---\n{salida['texto']}\n")
     return 0

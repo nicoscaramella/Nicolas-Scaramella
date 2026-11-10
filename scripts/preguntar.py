@@ -84,6 +84,10 @@ def main() -> int:
             "se muestra la evidencia.",
             file=sys.stderr,
         )
+    try:
+        db.registrar_consulta(pregunta, recuperados, salida)
+    except Exception as exc:
+        print(f"No se pudo auditar la consulta: {exc}", file=sys.stderr)
     return 0
 
 
