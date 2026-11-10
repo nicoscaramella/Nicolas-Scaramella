@@ -145,8 +145,9 @@ cite únicamente los que usa. `LLM_MODELOS_PERMITIDOS` es una allowlist: si
 Ollama tiene otros modelos instalados, el sistema igual **solo** puede llamar a
 los que estén ahí (`ministral-3:3b` por defecto). Si Ollama no está, el modelo
 no está descargado o la llamada falla, el script muestra la evidencia recuperada
-y el flujo normal sigue igual. `LLM_HABILITADO` queda en `0` por defecto para
-que la entrega no dependa de un servicio externo.
+y el flujo normal sigue igual. El compose lo deja habilitado
+(`LLM_HABILITADO=1`) para demos, pero el flujo del parte no lo usa: si Ollama no
+está, los scripts caen al texto determinista.
 
 Medición local: `ministral-3:3b` responde en ~1–2 s (~70 tok/s), mientras que
 los 9B instalados tardan ~38 s (~2 tok/s) por falta de RAM/GPU. Por eso la
@@ -164,7 +165,7 @@ Ver `.env.example`. Las principales:
 | `EMBEDDING_MODEL` | `intfloat/multilingual-e5-small` | Embeddings del RAG |
 | `TIMEOUT_NOTA_S` | `120` | Timeout global por nota |
 | `MAX_INTENTOS` | `3` | Intentos de borrador/pregunta |
-| `LLM_HABILITADO` | `0` | Habilita el LLM local opcional |
+| `LLM_HABILITADO` | `1` en compose (`0` en config) | Habilita el LLM local opcional para consultas; no participa del parte |
 | `LLM_MODEL` | `ministral-3:3b` | Modelo de Ollama |
 | `LLM_MODELOS_PERMITIDOS` | `ministral-3:3b` | Allowlist separada por comas; el resto se rechaza |
 | `LLM_BASE_URL` | `http://host.docker.internal:11434` | Ollama visto desde el contenedor |
@@ -209,7 +210,7 @@ durante el build de la imagen; en runtime la red de planta no tiene internet. El
 enlace solo se usa para el latido informativo (`enlace_ok`) y para la
 sincronización diferida de la cola.
 
-El LLM opcional (`ministral-3:3b`) corre en la GPU del host vía Ollama y está
-desactivado por defecto (`LLM_HABILITADO=0`). No participa del camino crítico:
-si se activa, se usa para consultas al RAG y contexto, nunca para armar o
+El LLM opcional (`ministral-3:3b`) corre en la GPU del host vía Ollama. El
+compose lo deja habilitado para demos (`LLM_HABILITADO=1`), pero no participa del
+camino crítico: se usa para consultas al RAG y contexto, nunca para armar o
 confirmar el parte. Por eso la entrega funciona igual sin GPU y sin Ollama.

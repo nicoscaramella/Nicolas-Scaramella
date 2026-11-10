@@ -14,10 +14,10 @@ No se usan modelos en la nube en la Entrega 1. El sistema funciona con el
 enlace caído: la transcripción, la detección, la alerta de seguridad y el parser
 son locales.
 
-El LLM es **opcional y fuera del camino crítico**: `LLM_HABILITADO=0` por
-defecto. Si Ollama no está, el context builder y `scripts/preguntar.py` caen al
-texto determinista con las citas. El parte nunca se arma ni se confirma con el
-LLM.
+El LLM es **opcional y fuera del camino crítico**: el compose lo deja
+habilitado para demos (`LLM_HABILITADO=1`). Si Ollama no está, el context builder
+y `scripts/preguntar.py` caen al texto determinista con las citas. El parte nunca
+se arma ni se confirma con el LLM.
 
 ### Hardware de pruebas
 
@@ -55,5 +55,5 @@ dentro del contenedor; un LLM chico en ese camino agregaría latencia y
 variabilidad sin mejorar el parte: las notas siguen plantillas acotadas y un
 parser validado contra `FilaParte` es más preciso y auditable. LangChain se usa
 en el context builder y el RAG; `ministral-3:3b` queda como LLM opcional para
-contexto y consultas, y se ejecuta en la GPU del host, desactivado por defecto
-para la corrida oficial.
+contexto y consultas, y se ejecuta en la GPU del host, habilitado en el compose
+para demos y fuera del camino crítico.

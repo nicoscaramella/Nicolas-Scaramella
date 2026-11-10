@@ -66,7 +66,7 @@ services:
       RAG_AUTOINDEX: "1"
       # LLM local opcional para demo; no participa del camino crítico.
       # Poner en "1" para probar scripts/preguntar.py con Ollama.
-      LLM_HABILITADO: "0"
+      LLM_HABILITADO: "1"
       LLM_MODEL: ministral-3:3b
       LLM_MODELOS_PERMITIDOS: ministral-3:3b
       LLM_BASE_URL: http://host.docker.internal:11434
