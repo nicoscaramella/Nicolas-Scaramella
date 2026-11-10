@@ -125,11 +125,10 @@ redacta el contexto de una anomalía o responde consultas sobre el corpus:
 # En el host, una sola vez: que Ollama escuche a Docker.
 sudo systemctl edit ollama   # OLLAMA_HOST=0.0.0.0:11434
 
-# En docker-compose.yml, servicio agente:
-#   extra_hosts: ["host.docker.internal:172.20.0.1"]  (planta-lan es internal)
-#   LLM_HABILITADO: "1"
-#   LLM_MODEL: ministral-3:3b
-#   LLM_BASE_URL: http://host.docker.internal:11434
+# El entrypoint resuelve host.docker.internal al gateway real de planta-lan
+# (la subred cambia si se recrea la red). Solo hace falta que Ollama escuche
+# en 0.0.0.0:11434. Variables: LLM_HABILITADO=1, LLM_MODEL=ministral-3:3b,
+# LLM_BASE_URL=http://host.docker.internal:11434.
 
 docker compose run --rm agente python scripts/preguntar.py \
   "¿Qué se hace con la cola cuando se corta el enlace?"

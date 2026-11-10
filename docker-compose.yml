@@ -34,10 +34,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # planta-lan es internal:true, no hay ruta a 172.17.0.1 (host-gateway).
-    # El host se alcanza por el gateway de la propia red.
-    extra_hosts:
-      - "host.docker.internal:172.20.0.1"
+    # host.docker.internal se resuelve al gateway real de planta-lan en el
+    # entrypoint (la subred cambia si se recrea la red). Ver sistema/hostgw.py.
     networks: [planta-lan]
     labels:
       academia.planta: pc
