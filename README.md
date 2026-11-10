@@ -21,6 +21,25 @@ docker compose up -d --build
 Visores: <http://localhost:8080> (3D) y <http://localhost:8081> (2D).
 Ahí se ve el latido de este sistema y los eventos que publica.
 
+### Postgres y el corrector: no los corras juntos
+
+La planta y tu sistema comparten la red `planta-lan`. El corrector levanta su
+propio proyecto (`alumno-nicolas-scaramella-entrega`) con un servicio `postgres`
+que tiene el mismo nombre que el de tu `docker compose up`. Si dejás tu stack
+arriba mientras corre el corrector, el agente puede resolver `postgres` a la
+base equivocada y fallar con `relation "outbox" does not exist` o quedar mudo.
+
+Antes de correr el corrector:
+
+```bash
+cd /home/nscaramella/AcademiaNovit/Nicolas-Scaramella-Entrega
+docker compose down
+docker ps --format '{{.Names}}' | grep -E 'entrega|alumno' || true
+```
+
+Tiene que quedar vacío (o solo el `alumno` si el corrector ya lo levantó). Al
+terminar el corrector podés volver a levantar tu stack con `docker compose up -d`.
+
 ## Qué hace
 
 - Escucha `planta/recorridas`, baja el audio y las fotos, y transcribe el audio
@@ -157,6 +176,43 @@ Medición local: `ministral-3:3b` responde en ~1–2 s (~70 tok/s), mientras que
 los 9B instalados tardan ~38 s (~2 tok/s) por falta de RAM/GPU. Por eso la
 allowlist deja solo `ministral-3:3b`. La tabla completa está en
 `evaluacion/resultados.md`.
+
+### Cómo ver el consumo del LLM en el visor
+
+1. Levantá la planta y el agente:
+
+   ```bash
+   docker compose up -d
+   ```
+
+2. Corré una consulta con el LLM:
+
+   ```bash
+   docker compose run --rm -e LLM_HABILITADO=1 agente \
+     python scripts/preguntar.py "¿Qué se hace con la cola cuando se corta el enlace?"
+   ```
+
+   Al final tiene que decir `Generado por: ministral-3:3b` y los tokens.
+
+3. El script guarda los tokens en PostgreSQL. En el próximo latido (30 s), el
+   agente publica `sistema/metricas` con la fila `ministral-3:3b`.
+
+4. Abrí el visor en <http://localhost:8081> (o `:8080`) y mirá la tabla de
+   consumo. Si todavía no aparece, esperá un latido más.
+
+Para verificarlo sin el visor:
+
+```bash
+docker compose exec -T postgres psql -U sistema -d sistema -c \
+  "select modelo, sum(tokens_entrada) as entrada, sum(tokens_salida) as salida,
+          round(avg(tokens_por_segundo)::numeric,1) as tok_s
+   from consumo group by modelo order by modelo;"
+
+docker exec planta-broker-1 mosquitto_sub -t sistema/metricas -C 1
+```
+
+El consumo se acumula: cada consulta suma una llamada y actualiza el promedio
+de tok/s.
 
 ## Variables
 
