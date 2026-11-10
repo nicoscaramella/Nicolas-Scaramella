@@ -20,7 +20,7 @@ from . import db, tablet
 from .asr import ASR
 from .config import settings
 from .deteccion import SensorDetector, eventos_de_parte
-from .historial import aviso_fuera_de_rango
+from .historial import SENSOR, aviso_fuera_de_rango, resumen_tendencia
 from .metricas import ConsumoTokens
 from .parser import Parser
 from .planta_api import PlantaAPI
@@ -133,10 +133,34 @@ def enviar_pregunta(
     publicador().publicar("sistema/tablet", payload)
 
 
-def enviar_aviso(nota_id: str, texto: str, equipo: str | None) -> None:
-    payload = tablet.payload_aviso(nota_id, texto, equipo)
+def enviar_aviso(
+    nota_id: str,
+    texto: str,
+    equipo: str | None,
+    titulo: str = "Alerta de seguridad",
+    variable: str = "condicion_insegura",
+) -> None:
+    payload = tablet.payload_aviso(nota_id, texto, equipo, titulo, variable)
     db.guardar_mensaje(payload["id"], nota_id, "aviso", payload, payload["pantalla"]["filas"], [], 0)
     publicador().publicar("sistema/tablet", payload)
+
+
+def tendencia_de(filas: list[dict], ts: datetime) -> str | None:
+    """Tendencia de las últimas horas para el contexto del Escalado."""
+    partes: list[str] = []
+    vistos: set[tuple[str, str]] = set()
+    for fila in filas:
+        variable = fila.get("variable")
+        if variable not in SENSOR or fila.get("valor") is None:
+            continue
+        clave = (fila.get("tag"), variable)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        resumen = resumen_tendencia(API, fila["tag"], variable, ts.isoformat())
+        if resumen:
+            partes.append(f"{fila['tag']} {variable}: {resumen}")
+    return "; ".join(partes) or None
 
 
 def enviar_sin_valores(nota_id: str, filas: list[dict]) -> None:
@@ -155,7 +179,11 @@ def enviar_sin_valores(nota_id: str, filas: list[dict]) -> None:
         "ts": tablet.ahora(),
         "nota_ids": [nota_id],
         "texto": "No hay valores numéricos para confirmar; registro el parte con las observaciones.",
-        "pantalla": {"titulo": "Parte registrado", "filas": filas, "opciones": []},
+        "pantalla": {
+            "titulo": "Parte registrado",
+            "filas": tablet.filas_para_tablet(filas),
+            "opciones": [],
+        },
         "espera_respuesta": False,
     }
     db.guardar_mensaje(payload["id"], nota_id, "sin_valores", payload, filas, [], 0)
@@ -163,7 +191,7 @@ def enviar_sin_valores(nota_id: str, filas: list[dict]) -> None:
     db.actualizar_parte(nota_id, filas=filas, estado="confirmado")
     parte = db.obtener_parte(nota_id)
     ts = parte["ts"] if parte else datetime.now(timezone.utc)
-    for evento in eventos_de_parte(nota_id, filas, PLANTA, ts):
+    for evento in eventos_de_parte(nota_id, filas, PLANTA, ts, tendencia_de(filas, ts)):
         if db.guardar_evento(evento):
             publicador().publicar("sistema/eventos", evento)
     log.info("Parte %s registrado sin valores (solo observaciones)", nota_id)
@@ -194,6 +222,11 @@ def procesar_nota(nota: dict) -> None:
             audio = API.descargar(nota["audio_url"])
         except Exception:
             log.exception("No se pudo bajar el audio de %s", nota_id)
+    for url in nota.get("fotos") or []:
+        try:
+            API.descargar(url)
+        except Exception:
+            log.warning("No se pudo bajar la foto %s de %s", url, nota_id)
     pasos += 1
 
     texto = ""
@@ -204,6 +237,22 @@ def procesar_nota(nota: dict) -> None:
             log.exception("Falló la transcripción de %s", nota_id)
     pasos += 1
     log.info("Transcripción: %s", texto)
+
+    if not audio or not texto.strip():
+        # Condición de corte: sin audio o sin transcripción no hay parte que
+        # confirmar. No se registra como "sin valores" (eso es una nota válida
+        # que no trae números).
+        motivo = "No se pudo bajar el audio" if not audio else "No se pudo transcribir la nota"
+        log.error("%s de %s; queda para revisión", motivo, nota_id)
+        db.actualizar_parte(nota_id, estado="cortado")
+        enviar_aviso(
+            nota_id,
+            f"{motivo}; queda para revisión.",
+            None,
+            titulo="Nota para revisión",
+            variable="estado",
+        )
+        return
 
     # Presupuesto de pasos/tokens: en esta entrega no hay LLM, así que los
     # tokens son 0 y el presupuesto queda documentado para la Entrega 2.
@@ -330,7 +379,7 @@ def procesar_respuesta(resp: dict) -> None:
             db.actualizar_parte(nota_id, estado="confirmado")
             parte = db.obtener_parte(nota_id)
             ts = parte["ts"] if parte else datetime.now(timezone.utc)
-            for evento in eventos_de_parte(nota_id, filas, PLANTA, ts):
+            for evento in eventos_de_parte(nota_id, filas, PLANTA, ts, tendencia_de(filas, ts)):
                 if db.guardar_evento(evento):
                     publicador().publicar("sistema/eventos", evento)
             payload = {

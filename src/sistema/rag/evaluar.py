@@ -1,7 +1,8 @@
 """Métricas de retrieval: hit@k, recall@k, distractor@k y MRR.
 
-Adaptado de `planta/corpus/evaluar.py` de la Academia para poder correr sin
-depender del paquete del simulador.
+Misma lógica y umbrales que `planta/corpus/evaluar.py` de la Academia
+(`evaluar(buscar, suite, ks)`), copiada al repo para poder correr sin depender
+del paquete del simulador.
 """
 
 from __future__ import annotations

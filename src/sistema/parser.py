@@ -56,6 +56,7 @@ class Resultado:
                 "valor": i.valor,
                 "unidad": i.unidad,
                 "observacion": i.observacion,
+                "foto": i.foto,
             }
             for i in self.items
         ]

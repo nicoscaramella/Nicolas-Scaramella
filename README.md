@@ -23,8 +23,10 @@ Ahí se ve el latido de este sistema y los eventos que publica.
 
 ## Qué hace
 
-- Escucha `planta/recorridas`, baja el audio y lo transcribe **localmente** con
-  `faster-whisper`.
+- Escucha `planta/recorridas`, baja el audio y las fotos, y transcribe el audio
+  **localmente** con `faster-whisper`.
+- La foto queda asociada a la fila del parte interno (`partes.filas`); el
+  `Escalado` incluye en su resumen las fotos y la tendencia de las últimas horas.
 - Arma el parte con `FilaParte` (equipo, variable, valor, unidad, observación),
   resuelve nombres informales, unidades y rangos históricos, y lo manda a la
   tablet del operador para confirmar o corregir.
@@ -33,6 +35,8 @@ Ahí se ve el latido de este sistema y los eventos que publica.
 - Si una nota no trae valores numéricos (por ejemplo, solo "parada, en
   reserva"), no se pide una confirmación imposible: se registra con un aviso y
   se publican los eventos según las observaciones.
+- Si falta el audio o la transcripción falla, la nota queda en estado `cortado`
+  y se avisa en la tablet; no se confunde con una nota válida sin valores.
 - Las notas `VIVO-…` (grabadas en vivo) se registran como `vivo` y no piden
   borrador, porque no tienen parte esperado.
 - Detecta condiciones inseguras S1–S4 en código, sin nube, y publica

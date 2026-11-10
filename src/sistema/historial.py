@@ -43,6 +43,26 @@ def rango_historico(
     return rango
 
 
+def resumen_tendencia(
+    api: PlantaAPI, tag: str, variable: str, ts: str, horas: int = 6
+) -> str | None:
+    """Min–max y último valor del sensor en las últimas horas."""
+    sensor = SENSOR.get(variable)
+    if sensor is None:
+        return None
+    try:
+        hasta = datetime.fromisoformat(ts)
+        desde = hasta - timedelta(hours=horas)
+        datos = api.historian(tag, sensor, desde.isoformat(), hasta.isoformat())
+        valores = [float(d["valor"]) for d in datos if d.get("valor") is not None]
+    except Exception:
+        log.warning("No se pudo leer la tendencia de %s/%s", tag, sensor)
+        return None
+    if not valores:
+        return None
+    return f"{min(valores):.1f}–{max(valores):.1f}, último {valores[-1]:.1f}"
+
+
 def aviso_fuera_de_rango(api: PlantaAPI, fila: dict, ts: str) -> str | None:
     variable = fila.get("variable")
     valor = fila.get("valor")

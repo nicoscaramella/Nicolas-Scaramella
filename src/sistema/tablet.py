@@ -19,6 +19,15 @@ def ahora() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def filas_para_tablet(filas: list[dict]) -> list[dict]:
+    """Quita ``foto``: el contrato ``FilaParte`` no tiene ese campo.
+
+    La foto se guarda en el parte interno (``partes.filas``) y se usa en el
+    contexto del Escalado; la tablet solo muestra los campos del contrato.
+    """
+    return [{k: v for k, v in f.items() if k != "foto"} for f in filas]
+
+
 def payload_borrador(
     nota_id: str, filas: list[dict], intento: int, aviso: str | None = None
 ) -> dict:
@@ -32,7 +41,7 @@ def payload_borrador(
         "texto": texto,
         "pantalla": {
             "titulo": "Parte de recorrida · borrador",
-            "filas": filas,
+            "filas": filas_para_tablet(filas),
             "opciones": [],
         },
         "espera_respuesta": True,
@@ -56,18 +65,24 @@ def payload_pregunta(
     }
 
 
-def payload_aviso(nota_id: str, texto: str, equipo: str | None) -> dict:
+def payload_aviso(
+    nota_id: str,
+    texto: str,
+    equipo: str | None,
+    titulo: str = "Alerta de seguridad",
+    variable: str = "condicion_insegura",
+) -> dict:
     return {
         "id": f"TAB-{nota_id}-SEG",
         "ts": ahora(),
         "nota_ids": [nota_id],
         "texto": texto,
         "pantalla": {
-            "titulo": "Alerta de seguridad",
+            "titulo": titulo,
             "filas": [
                 {
                     "tag": equipo or "PLANTA",
-                    "variable": "condicion_insegura",
+                    "variable": variable,
                     "valor": None,
                     "unidad": None,
                     "observacion": texto,

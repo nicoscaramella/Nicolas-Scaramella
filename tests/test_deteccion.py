@@ -44,6 +44,24 @@ def test_presion_fuera_de_limite_es_escalado(planta_def):
     assert evento["tipo"] == "Escalado"
 
 
+def test_escalado_incluye_foto_y_tendencia(planta_def):
+    filas = [
+        {"tag": "B-101", "variable": "presion_descarga_local", "valor": 130,
+         "unidad": "kg/cm2", "observacion": "presión alta",
+         "foto": "/media/fotos/descarga/01.jpg"}
+    ]
+    [evento] = eventos_de_parte(
+        "NOTA-1",
+        filas,
+        planta_def,
+        datetime.now(timezone.utc),
+        tendencia="100–120, último 118",
+    )
+    assert evento["tipo"] == "Escalado"
+    assert "/media/fotos/descarga/01.jpg" in evento["resumen"]
+    assert "tendencia: 100–120, último 118" in evento["resumen"]
+
+
 def test_un_evento_por_equipo(planta_def):
     filas = [
         {"tag": "B-101", "variable": "presion_descarga_local", "valor": 112,

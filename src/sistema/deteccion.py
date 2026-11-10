@@ -50,7 +50,11 @@ def es_anomalia(item: dict, limites: dict) -> bool:
 
 
 def eventos_de_parte(
-    nota_id: str, filas: list[dict], planta_def: dict, ts: datetime
+    nota_id: str,
+    filas: list[dict],
+    planta_def: dict,
+    ts: datetime,
+    tendencia: str | None = None,
 ) -> list[dict]:
     """Un EventoSistema por equipo de la nota (o uno sin equipo si no hay filas)."""
     limites = _limites(planta_def)
@@ -80,6 +84,14 @@ def eventos_de_parte(
         if anomalo:
             detalles = [f.get("observacion") or "presión fuera de límite" for f in filas_tag if es_anomalia(f, limites)]
             resumen = f"Anomalía en {tag}: " + "; ".join(dict.fromkeys(d for d in detalles if d))
+            extras = []
+            fotos = [f["foto"] for f in filas_tag if f.get("foto")]
+            if fotos:
+                extras.append("fotos: " + ", ".join(fotos))
+            if tendencia:
+                extras.append("tendencia: " + tendencia)
+            if extras:
+                resumen += "; " + "; ".join(extras)
         else:
             resumen = f"{tag} sin novedad"
         salida.append(

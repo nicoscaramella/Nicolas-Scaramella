@@ -60,6 +60,15 @@ def test_nota_fito_no_cuelga_el_diferencial_de_la_bomba(parser):
     assert ("BOMBA", "presion_diferencial") not in filas
 
 
+def test_foto_asociada_a_la_fila(parser):
+    r = parser.parse(
+        "La tres sigue goteando por la empaquetadura, le saqué foto.",
+        ["/media/fotos/empaquetadura/01.jpg"],
+    )
+    fila = next(f for f in r.filas() if f["variable"] == "goteo_empaquetadura")
+    assert fila["foto"] == "/media/fotos/empaquetadura/01.jpg"
+
+
 def test_unidades_por_bomba(parser):
     texto = (
         "La dos está en mil seiscientos cuarenta de descarga. "
