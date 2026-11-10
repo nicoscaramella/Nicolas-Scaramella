@@ -44,6 +44,36 @@ def test_entrada_estricta():
         HistorianIn(tag="B-101", variable="vibracion", otro=1)
 
 
+@respx.mock
+def test_historial_ordenes():
+    respx.get("http://sim:8100/api/historial-ordenes").mock(
+        return_value=httpx.Response(
+            200, json=[{"id": "OT-25-0026", "equipo": "B-101"}]
+        )
+    )
+    assert tools.historial_ordenes() == [{"id": "OT-25-0026", "equipo": "B-101"}]
+
+
+def test_buscar_manuales(monkeypatch):
+    class RAGFalso:
+        def buscar(self, query, k):
+            assert query == "vibracion"
+            assert k == 1
+            return [
+                {
+                    "cita": "TX350-D §3.2",
+                    "texto": "x" * 2000,
+                    "doc": "TX350-D",
+                    "vigente": True,
+                }
+            ]
+
+    monkeypatch.setattr(tools, "RAG", RAGFalso)
+    salida = tools.buscar_manuales("vibracion", 1)
+    assert salida[0]["cita"] == "TX350-D §3.2"
+    assert len(salida[0]["texto"]) == 1200
+
+
 def test_traducir_codigo_falla():
     r = tools.traducir_codigo_falla("tx-t03")
     assert r["codigo_fabricante"] == "TX-T03"

@@ -43,6 +43,19 @@ Los dos 9B son modelos de razonamiento: mandan el texto a `thinking` y dejan
 ~30 veces más. Por eso `LLM_MODELOS_PERMITIDOS` deja solo `ministral-3:3b`:
 otros modelos instalados en Ollama no se pueden llamar desde el sistema.
 
+## Suite end-to-end (aciertos, latencia y costo)
+
+`scripts/evaluar_sistema.py` corre descarga → ASR → parser sobre las notas de
+`/api/verdad` y reporta aciertos por campo, latencia por etapa y costo. Muestra
+de desarrollo sobre `libre` (4 notas):
+
+| Notas | Aciertos por campo | Latencia media | p95 | Costo |
+|---:|---:|---:|---:|---:|
+| 4 | 7/9 = 0,778 | 2,72 s | 3,10 s | USD 0 |
+
+La primera nota incluye la carga del modelo ASR. Para los escenarios de la
+Entrega 1 se corre con la planta en `martes-tranquilo` o `fuga-sin-enlace`.
+
 ## Corrección oficial
 
 Última corrida completa (`martes-tranquilo` + `fuga-sin-enlace`): **88,8 / 100**,

@@ -185,7 +185,15 @@ docker compose run --rm agente python scripts/evaluar_rag.py
 
 # Parte: aciertos por campo contra /api/verdad (planta en modo desarrollo)
 docker compose run --rm agente python scripts/evaluar_parte.py
+
+# Suite end-to-end: aciertos por campo, latencia por etapa y costo
+docker compose run --rm agente python scripts/evaluar_sistema.py
 ```
+
+`evaluar_sistema.py` corre descarga → ASR → parser sobre las notas de
+`/api/verdad` y reporta aciertos, latencia media/p95 por etapa y costo
+(USD 0 para los modelos locales). Es la suite que se usa para comparar
+cambios de ASR o de parser sin depender del flujo MQTT.
 
 ## Planta vs nube
 
@@ -196,7 +204,12 @@ Todo el camino crítico corre en la PC de planta (`planta-lan`, 4 CPU / 8 GB):
 - parser determinista del parte;
 - PostgreSQL + pgvector para estado, memoria y RAG.
 
-No hay dependencia de modelos en la nube para la Entrega 1. Los modelos locales
-se descargan durante el build de la imagen; en runtime la red de planta no tiene
-internet. El enlace solo se usa para el latido informativo (`enlace_ok`) y para
-la sincronización diferida de la cola.
+No hay componentes en la nube en la Entrega 1. Los modelos locales se descargan
+durante el build de la imagen; en runtime la red de planta no tiene internet. El
+enlace solo se usa para el latido informativo (`enlace_ok`) y para la
+sincronización diferida de la cola.
+
+El LLM opcional (`ministral-3:3b`) corre en la GPU del host vía Ollama y está
+desactivado por defecto (`LLM_HABILITADO=0`). No participa del camino crítico:
+si se activa, se usa para consultas al RAG y contexto, nunca para armar o
+confirmar el parte. Por eso la entrega funciona igual sin GPU y sin Ollama.
