@@ -20,6 +20,20 @@ docker compose up -d --build
 
 Visores: <http://localhost:8080> (3D) y <http://localhost:8081> (2D).
 Ahí se ve el latido de este sistema y los eventos que publica.
+Central de mantenimiento: <http://localhost:8200>.
+
+### Servicios del compose
+
+| Servicio | Red | Label `academia.planta: pc` | Límite | Qué hace |
+|---|---|---|---|---|
+| `db` | `planta-lan` | sí | 0.5 CPU / 1 GB | PostgreSQL 16 + pgvector |
+| `agente` | `planta-lan` | sí | 3.5 CPU / 7 GB | MQTT, tablet, ASR, órdenes, visión |
+| `central` | `planta-lan` + `interfaz` | no | 0.2 CPU / 256 MB | interfaz humana, publica el `:8200` |
+
+Los servicios de planta suman el límite de **4 CPU / 8 GB** y salen a internet
+solo por `HTTP(S)_PROXY=http://enlace:3128` (`NO_PROXY=broker,sim,localhost,db,agente`).
+`central` es la interfaz humana, no un servicio de planta: vive también en una
+red normal porque `planta-lan` es `internal: true` y no permite publicar puertos.
 
 ### Base de datos y el corrector: no los corras juntos
 
