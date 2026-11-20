@@ -39,8 +39,6 @@ services:
     networks: [planta-lan]
     labels:
       academia.planta: pc
-    ports:
-      - "8200:8200"
     environment:
       MQTT_HOST: broker
       MQTT_PORT: "1883"
@@ -86,10 +84,30 @@ services:
       resources:
         limits: {cpus: "3.5", memory: 7g}
     restart: unless-stopped
+
+  # Interfaz humana: NO es un servicio de planta. Vive fuera de planta-lan
+  # (que es internal) y publica el panel/API de la Central en el host.
+  central:
+    build: .
+    command: ["python", "-m", "sistema.central.proxy"]
+    depends_on: [agente]
+    networks: [planta-lan, interfaz]
+    ports:
+      - "8200:8200"
+    environment:
+      CENTRAL_PORT: "8200"
+      CENTRAL_DESTINO_HOST: agente
+      CENTRAL_DESTINO_PUERTO: "8200"
+    deploy:
+      resources:
+        limits: {cpus: "0.2", memory: 256m}
+    restart: unless-stopped
 networks:
   planta-lan:
     external: true
     name: planta-lan
+  interfaz:
+    driver: bridge
 
 volumes:
   pgdata:

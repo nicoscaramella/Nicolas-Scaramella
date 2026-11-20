@@ -114,6 +114,12 @@ deterministas producen el mismo circuito.
 El contrato MQTT no trae canal para las decisiones humanas: esta es la interfaz
 propia que pide el anexo. Se abre en <http://localhost:8200> junto al visor.
 
+La Central corre en un servicio **aparte** (`central`) porque `planta-lan` es
+`internal: true` y desde una red interna no se pueden publicar puertos. Los
+servicios de planta (`agente` y `db`) siguen **solo** en `planta-lan` con el
+label `academia.planta: pc`; el servicio `central` es la interfaz humana, vive
+también en una red normal y publica el 8200 al host.
+
 | Rol | Acciones | Regla |
 |---|---|---|
 | Planificador | aprobar / rechazar | el rechazo exige motivo |
