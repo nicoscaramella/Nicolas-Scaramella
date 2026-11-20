@@ -13,7 +13,7 @@ class Settings:
     mqtt_port: int = int(os.getenv("MQTT_PORT", "1883"))
     planta_url: str = os.getenv("PLANTA_URL", "http://sim:8100")
     database_url: str = os.getenv(
-        "DATABASE_URL", "postgresql://sistema:sistema@postgres:5432/sistema"
+        "DATABASE_URL", "postgresql://sistema:sistema@db:5432/sistema"
     )
     asr_model: str = os.getenv("ASR_MODEL", "small")
     asr_compute: str = os.getenv("ASR_COMPUTE", "int8")
@@ -43,6 +43,16 @@ class Settings:
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://host.docker.internal:11434")
     llm_timeout_s: float = float(os.getenv("LLM_TIMEOUT_S", "60"))
     llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "200"))
+
+    # Central de mantenimiento (planificador, supervisor, inspector).
+    central_puerto: int = int(os.getenv("CENTRAL_PORT", "8200"))
+
+    # Visión NVIDIA (build.nvidia.com). Sin clave queda la heurística local.
+    vision_habilitado: bool = os.getenv("VISION_HABILITADO", "0") not in ("0", "false", "no")
+    vision_modelo: str = os.getenv(
+        "VISION_MODELO", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    )
+    vision_timeout_s: float = float(os.getenv("VISION_TIMEOUT_S", "60"))
 
 
 settings = Settings()

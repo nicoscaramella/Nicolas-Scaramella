@@ -109,3 +109,47 @@ def test_sensor_normal_no_dispara(planta_def):
              "unidad": "mm/s", "ts": f"2026-11-09T10:0{i}:00-03:00"}
         )
         assert evento is None
+
+
+# ---------------------------------------------------------------------- F07 por tendencia
+
+
+def _dif(ts, valor):
+    return {"tag": "F-201B", "variable": "presion_diferencial", "valor": valor,
+            "unidad": "kg/cm2", "ts": ts}
+
+
+def _ts(minutos: int) -> str:
+    from datetime import timedelta
+
+    base = datetime(2026, 11, 6, 6, 30, tzinfo=timezone.utc)
+    return (base + timedelta(minutes=minutos)).isoformat()
+
+
+def test_diferencial_alto_sostenido_escala_sin_llegar_a_la_alarma(planta_def):
+    # F07: 1.06 sostenido (alarma 1.5). Es colmatación lenta, no un pico.
+    detector = SensorDetector(planta_def, muestras=5)
+    eventos = []
+    for minuto in range(0, 130, 5):
+        evento = detector.ingestar(_dif(_ts(minuto), 1.06))
+        if evento:
+            eventos.append(evento)
+    assert eventos, "la colmatación sostenida tiene que escalarse"
+    assert eventos[0]["tipo"] == "Escalado"
+    assert eventos[0]["origen"] == "sensor"
+    assert "diferencial" in eventos[0]["resumen"]
+
+
+def test_diferencial_bajo_no_escala(planta_def):
+    detector = SensorDetector(planta_def, muestras=5)
+    for minuto in range(0, 130, 5):
+        assert detector.ingestar(_dif(_ts(minuto), 0.55)) is None
+
+
+def test_pico_aislado_de_diferencial_no_escala(planta_def):
+    detector = SensorDetector(planta_def, muestras=5)
+    eventos = [
+        detector.ingestar(_dif(_ts(minuto), 1.3 if minuto == 60 else 0.6))
+        for minuto in range(0, 130, 5)
+    ]
+    assert all(e is None for e in eventos)

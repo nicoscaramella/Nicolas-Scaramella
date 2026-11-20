@@ -21,19 +21,17 @@ docker compose up -d --build
 Visores: <http://localhost:8080> (3D) y <http://localhost:8081> (2D).
 Ahí se ve el latido de este sistema y los eventos que publica.
 
-### Postgres y el corrector: no los corras juntos
+### Base de datos y el corrector: no los corras juntos
 
-La planta y tu sistema comparten la red `planta-lan`. El corrector levanta su
-propio proyecto (`alumno-nicolas-scaramella-entrega`) con un servicio `postgres`
-que tiene el mismo nombre que el de tu `docker compose up`. Si dejás tu stack
-arriba mientras corre el corrector, el agente puede resolver `postgres` a la
-base equivocada y fallar con `relation "outbox" does not exist` o quedar mudo.
-
-Antes de correr el corrector:
+La planta y tu sistema comparten la red `planta-lan`. Si dejás este stack
+arriba mientras corre el corrector, el agente del alumno puede resolver el
+nombre `db` al contenedor de tu stack de desarrollo en vez del suyo (y arrastra
+notas y órdenes viejas: partes que "ya estaban" y órdenes de prueba). Antes de
+correr el corrector:
 
 ```bash
 cd /home/nscaramella/AcademiaNovit/Nicolas-Scaramella-Entrega
-docker compose down
+docker compose down -v --remove-orphans
 docker ps --format '{{.Names}}' | grep -E 'entrega|alumno' || true
 ```
 
@@ -50,7 +48,9 @@ terminar el corrector podés volver a levantar tu stack con `docker compose up -
   resuelve nombres informales, unidades y rangos históricos, y lo manda a la
   tablet del operador para confirmar o corregir.
 - Genera `EventoSistema` (`SinNovedad` / `Escalado`) por equipo y por nota
-  confirmada, y eventos por desvíos sostenidos de sensores.
+  confirmada, y eventos por desvíos sostenidos de sensores. Incluye la
+  **colmatación lenta de filtros**: un diferencial alto sostenido (no un pico)
+  se escala aunque todavía no llegue a la alarma.
 - Si una nota no trae valores numéricos (por ejemplo, solo "parada, en
   reserva"), no se pide una confirmación imposible: se registra con un aviso y
   se publican los eventos según las observaciones.
@@ -60,11 +60,109 @@ terminar el corrector podés volver a levantar tu stack con `docker compose up -
   borrador, porque no tienen parte esperado.
 - Detecta condiciones inseguras S1–S4 en código, sin nube, y publica
   `AlertaSeguridad` y el aviso en la tablet.
+- **Del `Escalado` a la orden**: analiza la evidencia (parte, fotos, tendencia e
+  historial de órdenes), elige la falla probable con su cita del MBP-4, arma la
+  `OrdenSistema` completa y la decide con las 5 reglas: `Aprobada` o
+  `PendienteAprobacion` con motivo.
+- **Central de mantenimiento (:8200)**: panel y API/CLI para que el planificador
+  apruebe o rechace, el supervisor cierre y el inspector certifique u observe.
+- **Cierre**: transcribe `planta/cierres`, arma el parte de cierre, lo compara
+  contra la orden y pasa la orden a `Ejecutada`.
+- **Certificación**: el monto del habilita sale de la orden y de CT-SVP-2025,
+  nunca de lo que declara el cierre.
 - Publica el latido `sistema/estado` cada 30 s y telemetría en `sistema/metricas`.
-- Con el enlace caído sigue publicando en la red local, pero deja la outbox
+- Con el enlace caído sigue publicando en la red local, deja la outbox
   **pendiente de sincronizar** y la informa en el latido; al volver el enlace
   reintenta en orden y sin duplicar (los ids del contrato son idempotentes).
 - Expone tools de solo lectura por MCP y un RAG sobre el corpus en pgvector.
+
+## Workflow: del evento a la orden
+
+La parte fija es un workflow determinista; el agente (LLM local) solo redacta
+las causas y las citas, nunca decide la aprobación.
+
+```text
+MQTT planta/* ──► ruteo.py (seguridad | parte | sensor | respuesta | cierre)
+                        │
+                        ▼
+             EventoSistema (Escalado)
+                        │
+                        ▼
+     ┌───────────────────────────────────────────────┐
+     │ WORKFLOW FIJO (código, sin LLM)               │
+     │ 1. evidencia: parte + fotos + historian       │
+     │ 2. causas: tabla MBP-4 §6 + historial (§6.14) │
+     │ 3. borrador de OrdenSistema                   │
+     │ 4. reglas.decidir() — función pura, 5 reglas  │
+     │ 5. Aprobada | PendienteAprobacion + motivo    │
+     └───────────────────────────────────────────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        ▼                                ▼
+  Aprobada (reglas OK)          Pendiente (motivo)
+  cuadrilla / cierre            Central → planificador
+        │                                │
+        └──────────► cierre ──► Ejecutada ──► supervisor / inspector
+```
+
+El **agente** aporta el análisis en lenguaje natural (causas ordenadas y citas
+verificadas por el paso revisor). Si el LLM no está disponible, las heurísticas
+deterministas producen el mismo circuito.
+
+## Central de mantenimiento (:8200)
+
+El contrato MQTT no trae canal para las decisiones humanas: esta es la interfaz
+propia que pide el anexo. Se abre en <http://localhost:8200> junto al visor.
+
+| Rol | Acciones | Regla |
+|---|---|---|
+| Planificador | aprobar / rechazar | el rechazo exige motivo |
+| Supervisor | cerrar | solo trabajo propio terminado |
+| Inspector | certificar / observar | observar exige motivo; con diferencias no se certifica |
+
+Toda decisión pasa por `ordenes.estado` (transición válida, checkpoint en
+Postgres y publicación). Queda registrada en la tabla `decisiones` con quién y
+por qué.
+
+```bash
+# CLI (sin abrir el navegador)
+python -m sistema.central.cli pendientes
+python -m sistema.central.cli aprobar ORD-xxxx --quien "Planificador"
+python -m sistema.central.cli rechazar ORD-xxxx --quien "Planificador" --motivo "sin repuesto"
+python -m sistema.central.cli certificar ORD-xxxx --quien "Inspector"
+python -m sistema.central.cli observar ORD-xxxx --quien "Inspector" --motivo "repuesto extra"
+```
+
+## Cierre y certificación
+
+`planta/cierres` llega con el audio del técnico. El sistema lo transcribe, arma
+el parte de cierre (tareas hechas, repuestos usados, horas y prueba) y lo
+compara con la orden: tareas pedidas contra hechas y repuestos reservados
+contra usados. Cada diferencia queda marcada; la orden pasa a `Ejecutada`.
+
+Para la contratista, el inspector certifica con **habilita** (`HAB-AAAA-NNNN`)
+y **monto**, calculados desde la orden y el Anexo II de CT-SVP-2025: precios
+cerrados por tarea, I-VIB por equipo y la lista 2022 solo para trabajos
+iniciados antes de 2025. Si hay diferencias, la orden queda `Observada` con el
+motivo. La lógica se valida contra `datos/documentos/contrato/cierres_ejemplo.json`
+(movilización mal cobrada, horas extra, lista vieja, repuesto no autorizado y
+doble cantidad).
+
+## Multimodal
+
+Las fotos se analizan con un modelo de visión de **NVIDIA** del catálogo
+(`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, verificado con la foto de
+daño de `fuga-sin-enlace`). Detecta componente y **daño estructural**.
+
+- La foto viaja como `data:image/jpeg;base64,...` (la planta no es alcanzable
+  desde la nube).
+- El modelo es *reasoning*: usa `max_tokens=2000` y `reasoning_effort=low`.
+- **Sin enlace** el análisis queda en cola (`vision_pendientes`) y se usa la
+  heurística local; **la alerta de seguridad no depende de la foto**.
+- Un daño estructural en las fotos manda la orden **siempre a revisión
+  humana**, aunque las otras reglas pasen.
+
+
 
 ## Conexión con el visor
 
@@ -88,12 +186,17 @@ Por cada nota se persiste en PostgreSQL:
 - el mensaje de tablet enviado (`mensajes_tablet`),
 - el borrador y las ambigüedades (`partes`),
 - el intento y el estado del parte,
-- los eventos publicados (`eventos`).
+- los eventos publicados (`eventos`),
+- las órdenes con su estado, su `correlation_id` y su checkpoint (`ordenes`),
+- los cierres con el parte y las diferencias (`cierres`),
+- cada decisión humana con quién y por qué (`decisiones`),
+- los análisis de fotos pendientes de enlace (`vision_pendientes`).
 
 Se conserva durante la corrida y hasta 30 días para auditoría. La política es
 no guardar audios fuera del volumen de la planta y no sacar datos de
 `planta-lan`. El estado pendiente sobrevive a un reinicio porque está en
-PostgreSQL, no en memoria.
+PostgreSQL, no en memoria: al arrancar se re-publican las órdenes abiertas con
+el mismo id y estado (nunca vuelven a `Borrador`).
 
 ## Control y presupuesto
 
@@ -142,7 +245,7 @@ El RAG es asesor: no arma ni confirma el parte. Para que no invente:
   tokens y el motivo de fallback.
 
 ```bash
-docker compose exec -T postgres psql -U sistema -d sistema -c \
+docker compose exec -T db psql -U sistema -d sistema -c \
   "select id, pregunta, modelo, citas_usadas, suficiente, fallback, creado
    from consultas order by id desc limit 5;"
 ```
@@ -166,6 +269,7 @@ determinista, no el LLM.
 ```text
 src/sistema/
 ├── main.py            orquestador MQTT/tablet/worker
+├── ruteo.py           dispatcher por tipo de mensaje
 ├── asr.py             faster-whisper local
 ├── numeros.py         números hablados
 ├── parser.py          nota → FilaParte
@@ -178,6 +282,22 @@ src/sistema/
 ├── mcp_server.py      servidor MCP
 ├── contexto.py        context builder (LangChain + LLM opcional)
 ├── llm.py             cliente Ollama opcional
+├── ordenes/
+│   ├── reglas.py      D: función pura de las 5 reglas (única puerta de aprobación)
+│   ├── estado.py      máquina de estados y única escritura de órdenes
+│   ├── causas.py      MBP-4 §6 + patrones del historial (§6.14)
+│   ├── analisis.py    evidencia → causas → borrador de OrdenSistema
+│   ├── repositorio.py recuperación de órdenes tras el corte de luz
+│   ├── workflow.py    reintentos, deadlines y detección de loops
+│   ├── cierre.py      NotaCierre → parte de cierre y comparación
+│   └── certificacion.py habilita y monto con CT-SVP-2025
+├── vision/
+│   ├── nvidia.py      conector build.nvidia.com (nemotron-3-nano-omni)
+│   └── proveedor.py   heurística local + cola sin enlace
+├── central/
+│   ├── servicio.py    decisiones del planificador/supervisor/inspector
+│   ├── api.py         panel y API HTTP :8200 (solo stdlib)
+│   └── cli.py         CLI de la Central
 └── rag/               ingesta, búsqueda híbrida y evaluación
 ```
 
@@ -245,7 +365,7 @@ allowlist deja solo `ministral-3:3b`. La tabla completa está en
 Para verificarlo sin el visor:
 
 ```bash
-docker compose exec -T postgres psql -U sistema -d sistema -c \
+docker compose exec -T db psql -U sistema -d sistema -c \
   "select modelo, sum(tokens_entrada) as entrada, sum(tokens_salida) as salida,
           round(avg(tokens_por_segundo)::numeric,1) as tok_s
    from consumo group by modelo order by modelo;"
@@ -273,11 +393,24 @@ Ver `.env.example`. Las principales:
 | `LLM_BASE_URL` | `http://host.docker.internal:11434` | Ollama visto desde el contenedor |
 | `LLM_TIMEOUT_S` | `60` | Timeout de la llamada al LLM |
 | `LLM_MAX_TOKENS` | `200` | Máximo de tokens de salida |
+| `CENTRAL_PORT` | `8200` | Puerto de la Central de mantenimiento |
+| `VISION_HABILITADO` | `1` en compose | Analiza fotos con NVIDIA; `0` usa solo la heurística local |
+| `VISION_MODELO` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Modelo de visión del catálogo |
+| `VISION_TIMEOUT_S` | `60` | Timeout de la llamada de visión |
+| `NVIDIA_API_KEY` | (vacío) | Clave de build.nvidia.com; solo en `.env`, nunca en el repo |
 
 ## Tests
 
 ```bash
 docker compose run --rm agente pytest
+```
+
+El test diferencial de reglas contra el corrector real necesita el repo de la
+planta montado (si no está, se saltea solo):
+
+```bash
+docker compose run --rm -v "$PWD/src:/app/src" -v "$PWD/tests:/app/tests" \
+  -v "$PWD/../academia2026-tp:/academia2026-tp:ro" agente pytest -q
 ```
 
 ## Evaluación
@@ -298,9 +431,30 @@ docker compose run --rm agente python scripts/evaluar_sistema.py
 (USD 0 para los modelos locales). Es la suite que se usa para comparar
 cambios de ASR o de parser sin depender del flujo MQTT.
 
-Antes de correr el corrector, bajá este stack con `docker compose down`: el
-corrector levanta su propio `postgres` en `planta-lan` y dos servicios con el
-mismo nombre se pisan (el agente puede terminar conectado a la base equivocada).
+### Corrección oficial
+
+Antes de correr el corrector, bajá este stack con `docker compose down -v`: el
+corrector levanta su propio proyecto (`alumno-nicolas-scaramella-entrega`) en la
+misma red `planta-lan` y dos servicios con el mismo nombre se pisan (el agente
+puede terminar conectado a la base equivocada y arrastrar notas u órdenes
+viejas).
+
+```bash
+# Entrega 1 (regresión): A1–A4b, B1, B2, F1, F2
+python correccion/corregir.py --escenarios martes-tranquilo fuga-sin-enlace
+
+# Entrega 2: D1, D2, F3 y G1 (más fuga para el daño estructural y la eliminatoria)
+python correccion/corregir.py --escenarios tormenta-perfecta sin-luz contratista
+```
+
+### Nota sobre A2/A3
+
+Las notas cuya verdad no trae valores numéricos (por ejemplo "parada, en
+reserva" o la condición insegura de la fuga) no son confirmables por el
+operador virtual: solo evalúa filas con valor. El máximo alcanzable es 8/9 en
+`martes-tranquilo` y 2/4 en `fuga-sin-enlace`, que es exactamente lo que mide la
+Entrega 1. El sistema registra esas notas con un aviso (no inventa una
+confirmación imposible).
 
 ## Planta vs nube
 

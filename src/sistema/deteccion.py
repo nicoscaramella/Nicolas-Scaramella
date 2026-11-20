@@ -109,13 +109,74 @@ def eventos_de_parte(
 
 
 class SensorDetector:
-    """Anomalía sostenida: 5 muestras consecutivas fuera de límite."""
+    """Anomalía sostenida: 5 muestras consecutivas fuera de límite.
 
-    def __init__(self, planta_def: dict, muestras: int = 5):
+    Además, para el diferencial de los filtros (F07/F08 del MBP-4 §6.9: la
+    firma es "presión diferencial en aumento"), una lectura alta **sostenida**
+    (dos horas por encima del umbral de vigilancia) se escala aunque no llegue
+    a la alarma: es una colmatación lenta, no un pico aislado.
+    """
+
+    def __init__(
+        self,
+        planta_def: dict,
+        muestras: int = 5,
+        horas_tendencia: float = 2.0,
+        umbral_filtro: float = 1.0,
+    ):
         self.limites = _limites(planta_def)
         self.muestras = muestras
+        self.horas_tendencia = horas_tendencia
+        self.umbral_filtro = umbral_filtro
         self.hist: dict[tuple[str, str], deque] = defaultdict(lambda: deque(maxlen=muestras + 3))
+        self.hist_tendencia: dict[tuple[str, str], deque] = defaultdict(lambda: deque(maxlen=400))
         self.activos: dict[tuple[str, str], str] = {}
+        self.activos_tendencia: set[tuple[str, str]] = set()
+
+    def _tendencia(self, tag: str, variable: str, ts, valor: float) -> dict | None:
+        """Colmatación sostenida: alta durante ``horas_tendencia`` seguidas."""
+        if not tag.startswith("F-") or variable != "presion_diferencial":
+            return None
+        clave = (tag, variable)
+        serie = self.hist_tendencia[clave]
+        serie.append((ts, valor))
+        if valor < self.umbral_filtro:
+            self.activos_tendencia.discard(clave)
+            return None
+        if clave in self.activos_tendencia or len(serie) < 3:
+            return None
+        try:
+            desde = datetime.fromisoformat(str(ts))
+        except ValueError:
+            return None
+        ventana = [
+            (t, v) for t, v in serie
+            if (desde - datetime.fromisoformat(str(t))).total_seconds() <= self.horas_tendencia * 3600
+        ]
+        if len(ventana) < 3 or any(v < self.umbral_filtro for _, v in ventana):
+            return None
+        try:
+            inicio_ts = datetime.fromisoformat(str(ventana[0][0]))
+        except ValueError:
+            return None
+        # Tiene que estar sostenida de verdad: la ventana cubre casi las horas completas.
+        if (desde - inicio_ts).total_seconds() < self.horas_tendencia * 3600 * 0.8:
+            return None
+        primero = ventana[0][0]
+        self.activos_tendencia.add(clave)
+        return {
+            "id": f"EV-SENSOR-TEND-{tag}-{variable}-{primero}",
+            "ts": primero,
+            "tipo": "Escalado",
+            "equipo": tag,
+            "origen": "sensor",
+            "nota_ids": [],
+            "resumen": (
+                f"{tag} {variable} sostenidamente alta ({valor:.2f} >= "
+                f"{self.umbral_filtro:.2f} durante {self.horas_tendencia:.0f} h): "
+                "los cartuchos se están colmatando"
+            ),
+        }
 
     def ingestar(self, lectura: dict, estado_bombas: dict[str, str] | None = None) -> dict | None:
         tag = lectura.get("tag")
@@ -133,6 +194,7 @@ class SensorDetector:
         ):
             self.hist.pop((tag, variable), None)
             self.activos.pop((tag, variable), None)
+            self.hist_tendencia.pop((tag, variable), None)
             return None
         lim = self.limites.get((tag, variable))
         if not lim:
@@ -141,7 +203,7 @@ class SensorDetector:
         self.hist[clave].append((lectura.get("ts"), valor))
         valores = list(self.hist[clave])
         if len(valores) < self.muestras:
-            return None
+            return self._tendencia(tag, variable, lectura.get("ts"), valor)
         ultimos = valores[-self.muestras:]
         alto, bajo = lim.get("alarma_alta"), lim.get("alarma_baja")
         condicion = None
@@ -152,7 +214,7 @@ class SensorDetector:
             condicion, limite = "baja", bajo
         if condicion is None:
             self.activos.pop(clave, None)
-            return None
+            return self._tendencia(tag, variable, lectura.get("ts"), valor)
         if clave in self.activos:
             return None
         primero = ultimos[0][0]

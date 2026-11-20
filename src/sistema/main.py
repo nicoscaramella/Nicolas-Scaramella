@@ -16,18 +16,21 @@ import httpx
 import paho.mqtt.client as mqtt
 import yaml
 
-from . import db, tablet
+from . import db, ruteo, tablet
 from .asr import ASR
+from .central import api as central_api
 from .config import settings
 from .deteccion import SensorDetector, eventos_de_parte
 from .historial import SENSOR, aviso_fuera_de_rango, resumen_tendencia
 from .metricas import modelos_metricas, payload_metricas
+from .ordenes import analisis, cierre as cierre_mod, repositorio
 from .parser import Parser
 from .planta_api import PlantaAPI
 from .publicacion import Publicador
 from .rag.buscar import RAG
 from .rag.indexar import asegurar_indice
 from .seguridad import detectar_seguridad, texto_alerta
+from .vision.proveedor import Proveedor as VisionProveedor
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +57,11 @@ SENSORES = SensorDetector(PLANTA)
 ASR_MODEL: ASR | None = None
 PUBLICADOR: Publicador | None = None
 RAG_MODEL = RAG()
+PROVEEDOR_VISION = VisionProveedor(
+    API, habilitado=settings.vision_habilitado, modelo=settings.vision_modelo
+)
 ESTADO_BOMBAS: dict[str, str] = {}
+ENERGIA_OK = True
 
 
 def asr() -> ASR:
@@ -67,6 +74,17 @@ def asr() -> ASR:
 def publicador() -> Publicador:
     assert PUBLICADOR is not None
     return PUBLICADOR
+
+
+def actualizar_energia(payload: dict) -> None:
+    """Estado de energía de la planta (``planta/energia`` es retenido).
+
+    El corte de luz apaga todos los contenedores con label ``pc``; cuando el
+    broker reentrega el último estado al reconectar, este flag se corrige solo.
+    """
+    global ENERGIA_OK
+    ENERGIA_OK = ruteo.energia_disponible(payload)
+    log.info("Energía de planta: %s", "presente" if ENERGIA_OK else "cortada")
 
 
 def actualizar_enlace() -> None:
@@ -168,6 +186,85 @@ def publicar_alerta(nota_id: str, codigo: str, texto: str, ts: str) -> None:
     log.info("Alerta %s publicada para %s", codigo, nota_id)
 
 
+def procesar_escalado(
+    evento: dict,
+    filas: list[dict] | None = None,
+    *,
+    texto: str = "",
+    dano_estructural: bool = False,
+) -> None:
+    """Escalado → análisis → reglas → orden publicada.
+
+    Nunca frena el flujo de la nota: si algo falla, se loguea y se sigue.
+    """
+    equipo = evento.get("equipo")
+    if not equipo:
+        return
+    observaciones = tuple(
+        f.get("observacion")
+        for f in (filas or [])
+        if f.get("tag") == equipo and f.get("observacion")
+    )
+    try:
+        historial = tuple((API.historial_ordenes(equipo) or [])[-40:])
+    except Exception:
+        log.warning("No se pudo leer el historial de %s", equipo)
+        historial = ()
+    ev = analisis.Evidencia(
+        equipo=equipo,
+        resumen=evento.get("resumen") or "",
+        observaciones=observaciones,
+        dano_estructural=dano_estructural,
+        evento_ids=(evento["id"],) if evento.get("id") else (),
+        historial=historial,
+    )
+    # El estado de las bombas se lee FRESCO: con el reloj acelerado, 30 s de
+    # latido son horas de planta y una reserva puede haber cambiado. La
+    # eliminatoria `aprobacion_indebida` se juega en este dato.
+    global ESTADO_BOMBAS
+    try:
+        ESTADO_BOMBAS = {
+            b["tag"]: b.get("estado", "marcha")
+            for b in API.estado().get("bombas", [])
+        }
+        bombas = dict(ESTADO_BOMBAS)
+    except Exception:
+        log.warning("No se pudo leer el estado de bombas para %s; decisión conservadora", equipo)
+        bombas = None
+    try:
+        orden = analisis.procesar(ev, publicador(), bombas=bombas)
+        if orden:
+            log.info("Orden %s para %s: %s", orden.get("id"), equipo, orden.get("estado"))
+    except Exception:
+        log.exception("No se pudo procesar la orden de %s", equipo)
+
+
+def generar_orden_seguridad(nota_id: str, codigo: str, texto: str, nota: dict) -> None:
+    """Después de la alerta, la condición insegura también genera su orden.
+
+    La alerta sale primero (no espera al ASR); esto corre después y solo arma
+    la orden si se puede identificar el equipo.
+    """
+    equipo = PARSER.tag_en_texto(texto)
+    if not equipo:
+        log.warning("Condición %s en %s sin equipo identificable: sin orden", codigo, nota_id)
+        return
+    evento = {
+        "id": f"EV-{nota_id}-SEG",
+        "ts": nota["ts"],
+        "tipo": "Escalado",
+        "equipo": equipo,
+        "origen": "parte",
+        "nota_ids": [nota_id],
+        "resumen": f"Condición insegura {codigo}: {(texto or 'foto de daño')[:160]}",
+    }
+    # El análisis de la foto no frena la alerta (ya salió): si el enlace está
+    # caído queda en cola y se usa la heurística local.
+    analisis_foto = PROVEEDOR_VISION.analizar(nota)
+    dano = codigo == "S1" or bool(analisis_foto and analisis_foto.dano_estructural)
+    procesar_escalado(evento, dano_estructural=dano, texto=texto)
+
+
 def tendencia_de(filas: list[dict], ts: datetime) -> str | None:
     """Tendencia de las últimas horas para el contexto del Escalado."""
     partes: list[str] = []
@@ -217,6 +314,8 @@ def enviar_sin_valores(nota_id: str, filas: list[dict]) -> None:
     for evento in eventos_de_parte(nota_id, filas, PLANTA, ts, tendencia_de(filas, ts)):
         if db.guardar_evento(evento):
             publicador().publicar("sistema/eventos", evento)
+            if evento.get("tipo") == "Escalado":
+                COLA.put(("escalado", (evento, filas)))
     log.info("Parte %s registrado sin valores (solo observaciones)", nota_id)
 
 
@@ -242,8 +341,9 @@ def procesar_nota(nota: dict) -> None:
     # estar caído justo cuando llega la nota.
     codigo_foto = detectar_seguridad("", nota.get("fotos"))
     if codigo_foto:
+        # La alerta sale ya, sin esperar al ASR. El equipo para la orden se
+        # identifica después, cuando hay transcripción.
         publicar_alerta(nota_id, codigo_foto, "", nota["ts"])
-        return
     log.info("Nota %s de %s", nota_id, nota.get("operador"))
     pasos = 0
     tokens = 0
@@ -296,7 +396,11 @@ def procesar_nota(nota: dict) -> None:
 
     codigo = detectar_seguridad(texto, nota.get("fotos"))
     if codigo:
-        publicar_alerta(nota_id, codigo, texto, nota["ts"])
+        if not codigo_foto:
+            publicar_alerta(nota_id, codigo, texto, nota["ts"])
+        # La condición insegura también deja su orden (daño estructural en las
+        # fotos -> revisión humana obligatoria).
+        generar_orden_seguridad(nota_id, codigo, texto, nota)
         return
 
     resultado = PARSER.parse(texto, nota.get("fotos"))
@@ -394,6 +498,8 @@ def procesar_respuesta(resp: dict) -> None:
             for evento in eventos_de_parte(nota_id, filas, PLANTA, ts, tendencia_de(filas, ts)):
                 if db.guardar_evento(evento):
                     publicador().publicar("sistema/eventos", evento)
+                    if evento.get("tipo") == "Escalado":
+                        COLA.put(("escalado", (evento, filas)))
             payload = {
                 "id": f"TAB-{nota_id}-ok",
                 "ts": tablet.ahora(),
@@ -418,6 +524,37 @@ def procesar_respuesta(resp: dict) -> None:
 # --------------------------------------------------------------------------- workers
 
 
+def procesar_cierre(cierre: dict) -> None:
+    """Cierre del técnico: transcribir, armar el parte y comparar con la orden."""
+    if not db.guardar_cierre_crudo(cierre):
+        log.info("Cierre %s ya estaba; no se reprocesa", cierre.get("id"))
+        return
+    texto = ""
+    if cierre.get("audio_url"):
+        try:
+            audio = API.descargar(cierre["audio_url"])
+            texto = asr().transcribir(audio)
+        except Exception:
+            log.exception("No se pudo transcribir el cierre %s", cierre.get("id"))
+    if not texto.strip():
+        log.error("Cierre %s sin transcripción; queda para revisión", cierre.get("id"))
+        db.actualizar_cierre_procesado(
+            cierre["id"], diferencias=["no se pudo transcribir el cierre"]
+        )
+        return
+    log.info("Cierre %s: %s", cierre.get("id"), texto[:200])
+    try:
+        orden, parte, diferencias = cierre_mod.procesar(
+            publicador(), nota=cierre, texto=texto
+        )
+        log.info(
+            "Cierre %s procesado; orden %s; diferencias: %s",
+            cierre.get("id"), (orden or {}).get("id"), diferencias or "ninguna",
+        )
+    except Exception:
+        log.exception("No se pudo procesar el cierre %s", cierre.get("id"))
+
+
 def worker() -> None:
     while True:
         item = COLA.get()
@@ -434,6 +571,13 @@ def worker() -> None:
                     db.actualizar_parte(item[1]["id"], estado="timeout")
             elif item[0] == "respuesta":
                 procesar_respuesta(item[1])
+            elif item[0] == "cierre":
+                # Persistencia cruda y procesamiento: parte de cierre,
+                # diferencias contra la orden y orden a Ejecutada.
+                procesar_cierre(item[1])
+            elif item[0] == "escalado":
+                evento, filas = item[1]
+                procesar_escalado(evento, filas)
         except Exception:
             log.exception("Error procesando %s", item[0])
         finally:
@@ -445,7 +589,13 @@ def worker() -> None:
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     log.info("MQTT conectado: %s", reason_code)
-    client.subscribe([("planta/recorridas", 1), ("planta/respuestas", 1), ("planta/sensores/#", 1)])
+    client.subscribe([
+        ("planta/recorridas", 1),
+        ("planta/respuestas", 1),
+        ("planta/sensores/#", 1),
+        ("planta/cierres", 1),
+        ("planta/energia", 1),
+    ])
 
 
 def on_message(client, userdata, msg):
@@ -454,11 +604,16 @@ def on_message(client, userdata, msg):
     except Exception:
         log.exception("Payload inválido en %s", msg.topic)
         return
-    if msg.topic == "planta/recorridas":
+    tipo = ruteo.clasificar(msg.topic)
+    if tipo == ruteo.PARTE:
         COLA.put(("nota", payload))
-    elif msg.topic == "planta/respuestas":
+    elif tipo == ruteo.RESPUESTA:
         COLA.put(("respuesta", payload))
-    elif msg.topic.startswith("planta/sensores/"):
+    elif tipo == ruteo.CIERRE:
+        COLA.put(("cierre", payload))
+    elif tipo == ruteo.ENERGIA:
+        actualizar_energia(payload)
+    elif tipo == ruteo.SENSOR:
         try:
             evento = SENSORES.ingestar(payload, ESTADO_BOMBAS)
         except Exception:
@@ -466,6 +621,10 @@ def on_message(client, userdata, msg):
             return
         if evento and db.guardar_evento(evento):
             publicador().publicar("sistema/eventos", evento)
+            if evento.get("tipo") == "Escalado":
+                COLA.put(("escalado", (evento, None)))
+    else:
+        log.debug("Tópico sin ruteo: %s", msg.topic)
 
 
 # --------------------------------------------------------------------------- latido y métricas
@@ -545,7 +704,7 @@ def main() -> None:
     cliente.on_connect = on_connect
     cliente.on_message = on_message
     cliente.reconnect_delay_set(1, 30)
-    global PUBLICADOR
+    global PUBLICADOR, ENERGIA_OK
     PUBLICADOR = Publicador(cliente, al_quedar_pendiente=publicar_estado)
     for intento in range(30):
         try:
@@ -556,8 +715,34 @@ def main() -> None:
             time.sleep(2)
     cliente.loop_start()
 
+    # Estado de energía inicial (el tópico planta/energia es retenido).
+    try:
+        ENERGIA_OK = bool(API.estado().get("hay_energia", True))
+    except Exception:
+        log.warning("No se pudo leer el estado de energía inicial")
+
+    # Después de un corte de luz, las órdenes abiertas vuelven con el mismo id
+    # y estado (nunca a Borrador).
+    try:
+        recuperadas = repositorio.recuperar(PUBLICADOR)
+        if recuperadas:
+            log.info("Órdenes abiertas recuperadas: %s", recuperadas)
+    except Exception:
+        log.exception("No se pudieron recuperar las órdenes abiertas")
+
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
+
+    # Central de mantenimiento: planificador, supervisor e inspector.
+    try:
+        threading.Thread(
+            target=central_api.servir,
+            args=(PUBLICADOR, settings.central_puerto),
+            daemon=True,
+        ).start()
+        log.info("Central de mantenimiento en :%s", settings.central_puerto)
+    except Exception:
+        log.exception("No se pudo levantar la Central")
     if settings.rag_autoindex:
         def autoindex() -> None:
             # La indexación compite por CPU con el ASR. Se retrasa para no

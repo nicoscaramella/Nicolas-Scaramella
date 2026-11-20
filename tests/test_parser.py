@@ -145,3 +145,64 @@ def test_sin_novedad(parser):
     r = parser.parse("Recorrida sin novedad, todo normal.")
     assert not r.items
     assert not r.ambiguedades
+
+
+# ---------------------------------------------------------------------- variantes del ASR
+
+
+def test_presion_sin_la_palabra_descarga(parser):
+    filas = por_clave(parser.parse("La dos está en 1620 libras de escala."))
+    assert filas[("B-102", "presion_descarga_local")].valor == 1620
+    assert filas[("B-102", "presion_descarga_local")].unidad == "psi"
+
+
+def test_golpeteo_dicho_golpe_teometalico(parser):
+    filas = por_clave(parser.parse("La dos está en 1630 de descarga, hace un golpe teómetálico."))
+    assert filas[("B-102", "ruido")].observacion
+
+
+def test_ruido_raro_del_rodamiento(parser):
+    filas = por_clave(parser.parse("La de la punta tiene un ruido raro del rodamiento."))
+    assert filas[("B-101", "ruido")].observacion
+
+
+def test_disparada_con_punto_y_sin_no_arranca(parser):
+    filas = por_clave(parser.parse("La uno está disparada. No arranca."))
+    assert filas[("B-101", "estado")].observacion == "disparada, no arranca"
+
+
+def test_estado_con_nombre_deformado_por_el_asr(parser):
+    filas = por_clave(parser.parse("El pulmón está en 5 metros, el alfondo está parado por mantenimiento."))
+    assert filas[("B-103", "estado")].observacion == "parada por mantenimiento"
+
+
+def test_mantenimiento_en_femenino(parser):
+    filas = por_clave(parser.parse("Además, la tres está parada por mantenimiento."))
+    assert filas[("B-103", "estado")].observacion == "parada por mantenimiento"
+
+
+def test_ruido_de_bomba_no_se_pega_al_filtro(parser):
+    r = parser.parse(
+        "El filtro A me dio uno con tres de diferencial. En la bomba, el rodamiento "
+        "medio 96 grados, tiene un ruido raro de rodamiento."
+    )
+    filtro = [i for i in r.items if i.tag == "F-201A"]
+    assert filtro and all(i.variable != "ruido" for i in filtro)
+
+
+def test_reserva_con_la_trece(parser):
+    filas = por_clave(parser.parse("La trece está parada en reserva. La dos está en 1620 libras de escala."))
+    assert filas[("B-103", "estado")].observacion == "parada, en reserva"
+    assert filas[("B-102", "presion_descarga_local")].valor == 1620
+
+
+def test_variantes_de_nombres_del_asr(parser):
+    r = parser.parse("La de la punto está en 113 descarga.")
+    assert {i.tag for i in r.items} == {"B-101"}
+    assert not r.ambiguedades
+
+    filas = por_clave(parser.parse("Las dos están en 1630 de descarga."))
+    assert filas[("B-102", "presion_descarga_local")].valor == 1630
+
+    filas = por_clave(parser.parse("E, la de medivista en 1600 psi de descarga."))
+    assert filas[("B-102", "presion_descarga_local")].valor == 1600

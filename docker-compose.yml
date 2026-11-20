@@ -8,7 +8,7 @@
 name: entrega
 
 services:
-  postgres:
+  db:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: sistema
@@ -32,21 +32,23 @@ services:
   agente:
     build: .
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     # host.docker.internal se resuelve al gateway real de planta-lan en el
     # entrypoint (la subred cambia si se recrea la red). Ver sistema/hostgw.py.
     networks: [planta-lan]
     labels:
       academia.planta: pc
+    ports:
+      - "8200:8200"
     environment:
       MQTT_HOST: broker
       MQTT_PORT: "1883"
       PLANTA_URL: http://sim:8100
-      DATABASE_URL: postgresql://sistema:sistema@postgres:5432/sistema
+      DATABASE_URL: postgresql://sistema:sistema@db:5432/sistema
       HTTP_PROXY: http://enlace:3128
       HTTPS_PROXY: http://enlace:3128
-      NO_PROXY: broker,sim,localhost,postgres,agente,host.docker.internal,127.0.0.1
+      NO_PROXY: broker,sim,localhost,db,agente,host.docker.internal,127.0.0.1
       SISTEMA_NOMBRE: Nicolas-Scaramella
       ASR_MODEL: small
       ASR_COMPUTE: int8
@@ -73,6 +75,13 @@ services:
       LLM_MODEL: ministral-3:3b
       LLM_MODELOS_PERMITIDOS: ministral-3:3b
       LLM_BASE_URL: http://host.docker.internal:11434
+      # Central de mantenimiento (interfaz propia de decisiones humanas).
+      CENTRAL_PORT: "8200"
+      # Visión NVIDIA (build.nvidia.com). La clave sale del .env, nunca del repo.
+      VISION_HABILITADO: "${VISION_HABILITADO:-1}"
+      VISION_MODELO: "${VISION_MODELO:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning}"
+      VISION_TIMEOUT_S: "60"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
     deploy:
       resources:
         limits: {cpus: "3.5", memory: 7g}

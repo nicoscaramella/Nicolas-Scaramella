@@ -22,6 +22,23 @@ from .seguridad import detectar_seguridad
 
 NORMALES = {"parada, en reserva", "parada por mantenimiento"}
 
+# Variantes que produce el ASR con voz humana y que cambian el nombre informal.
+_VARIANTES_ASR = (
+    (re.compile(r"\bla de la punto\b"), "la de la punta"),
+    (re.compile(r"\blas dos\b"), "la dos"),
+    (re.compile(r"\b(?:el alfondo|al fondo|la fondo)\b"), "la del fondo"),
+    (re.compile(r"\bla trece\b"), "la tres"),
+    (re.compile(r"\bde medivista\b"), "del medio"),
+)
+
+
+def normalizar_variantes(texto: str) -> str:
+    """Normaliza y corrige variantes típicas del ASR antes de segmentar."""
+    t = normalizar(texto)
+    for patron, reemplazo in _VARIANTES_ASR:
+        t = patron.sub(reemplazo, t)
+    return t
+
 
 @dataclass
 class ItemParte:
@@ -108,7 +125,7 @@ class Parser:
 
     def tag_en_texto(self, texto: str) -> str | None:
         """Primer equipo concreto mencionado (para la alerta de seguridad)."""
-        t = normalizar(texto)
+        t = normalizar_variantes(texto)
         for alias, tag, ambiguo in self.aliases:
             if tag and not ambiguo and re.search(rf"\b{re.escape(alias)}\b", t):
                 return tag
@@ -163,7 +180,7 @@ class Parser:
         return None
 
     def parse(self, texto: str, fotos: list[str] | None = None) -> Resultado:
-        original = normalizar(texto)
+        original = normalizar_variantes(texto)
         seguridad = detectar_seguridad(original, fotos)
         if seguridad:
             return Resultado(seguridad=seguridad)
@@ -190,6 +207,7 @@ class Parser:
                     item.foto = (fotos or [])[foto_idx]
                     foto_idx += 1
             resultado.items.extend(items)
+        resultado.items.extend(self._estados_globales(original))
         resultado.items = self._deduplicar(resultado.items)
         return resultado
 
@@ -204,12 +222,15 @@ class Parser:
             items.append(ItemParte(tag, "estado", None, None, "parada, en reserva"))
         elif re.search(r"parada por mantenimiento", t):
             items.append(ItemParte(tag, "estado", None, None, "parada por mantenimiento"))
-        elif re.search(r"disparada,? no arranca", t):
+        elif re.search(r"disparada", t):
             items.append(ItemParte(tag, "estado", None, None, "disparada, no arranca"))
 
-        # Presión de descarga local.
-        if "descarga" in t:
-            pre = t.split("descarga", 1)[0]
+        # Presión de descarga local. El ASR a veces omite "descarga" y deja
+        # solo la unidad ("1620 libras de escala").
+        if "descarga" in t or (
+            tag.startswith("B-") and re.search(r"\b(libras?|psi|kilos?|kilogramos?|bares?|bar)\b", t)
+        ):
+            pre = t.split("descarga", 1)[0] if "descarga" in t else t
             pre = re.sub(r"^\s*(?:esta|está)?\s*(?:en)?\s*", "", pre)
             valor = parse_numero(pre)
             if valor is not None:
@@ -280,15 +301,35 @@ class Parser:
             estado = "flojas" if "flojas" in t else "rotas" if "rotas" in t else "gastadas" if "gastadas" in t else "mal"
             items.append(ItemParte(tag, "estado_correas", None, None, f"correas {estado}"))
 
-        # Ruidos.
-        if "golpeteo" in t:
-            items.append(ItemParte(tag, "ruido", None, None, "hace un golpeteo metálico"))
-        elif re.search(r"piedras|cavita", t):
-            items.append(ItemParte(tag, "ruido", None, None, "suena como si tuviera piedras adentro"))
-        elif "ruido raro de rodamiento" in t:
-            items.append(ItemParte(tag, "ruido", None, None, "tiene un ruido raro de rodamiento"))
+        # Ruidos de bomba. El ASR escribe "golpeteo", "golpe teómetálico",
+        # "competeo"... Solo se asignan a bombas: en un tramo de filtro el ruido
+        # que sigue suele ser de la bomba que se menciona después.
+        if tag.startswith("B-") or tag == "BOMBA":
+            if re.search(r"golp|compete|martill", t):
+                items.append(ItemParte(tag, "ruido", None, None, "hace un golpeteo metálico"))
+            elif re.search(r"ruido raro d[el]?l? ?rodamiento", t):
+                items.append(ItemParte(tag, "ruido", None, None, "tiene un ruido raro de rodamiento"))
+            elif re.search(r"piedras|cavita", t):
+                items.append(ItemParte(tag, "ruido", None, None, "suena como si tuviera piedras adentro"))
+            elif "ruido raro de rodamiento" in t:
+                items.append(ItemParte(tag, "ruido", None, None, "tiene un ruido raro de rodamiento"))
 
         return items, amb
+
+    def _estados_globales(self, t: str) -> list[ItemParte]:
+        """Estados con nombres informales que el ASR deforma ("el alfondo",
+        "la trece"). Sin esto, la nota pierde el equipo y el evento."""
+        items: list[ItemParte] = []
+        patrones = (
+            (r"(?:tres|trece|fondo|alfondo)[^.]{0,40}?parada,? en reserva", "B-103", "parada, en reserva"),
+            (r"(?:tres|trece|fondo|alfondo)[^.]{0,40}?parado por mantenimiento", "B-103", "parada por mantenimiento"),
+            (r"(?:punta|porton|uno)[^.]{0,40}?disparada", "B-101", "disparada, no arranca"),
+            (r"(?:medio|dos)[^.]{0,40}?disparada", "B-102", "disparada, no arranca"),
+        )
+        for patron, tag, observacion in patrones:
+            if re.search(patron, t):
+                items.append(ItemParte(tag, "estado", None, None, observacion))
+        return items
 
     @staticmethod
     def _deduplicar(items: list[ItemParte]) -> list[ItemParte]:
